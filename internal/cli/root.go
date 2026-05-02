@@ -42,6 +42,7 @@ func init() {
 		commands.NewListCmd(),
 		commands.NewInfoCmd(),
 		commands.NewInspectCmd(),
+		commands.NewPackCmd(),
 	)
 }
 

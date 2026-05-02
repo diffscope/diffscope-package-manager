@@ -6,11 +6,13 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/go-playground/validator/v10 v10.20.0
 	github.com/gofrs/flock v0.13.0
+	github.com/pelletier/go-toml/v2 v2.2.2
 	github.com/pterm/pterm v0.12.83
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
 	golang.org/x/term v0.40.0
 	golang.org/x/text v0.34.0
+	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
 )
@@ -44,7 +46,6 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
-	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sagikazarmark/locafero v0.4.0 // indirect
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
@@ -61,5 +62,4 @@ require (
 	golang.org/x/net v0.23.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
