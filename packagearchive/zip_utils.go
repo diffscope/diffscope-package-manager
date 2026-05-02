@@ -86,6 +86,9 @@ func cleanPackagePath(filePath string) (string, error) {
 	if strings.Contains(filePath, "\\") {
 		return "", fmt.Errorf("package path %q must use forward slashes", filePath)
 	}
+	if strings.Contains(path.Clean(filePath), ":") {
+		return "", fmt.Errorf("package path %q must not contain a volume name", filePath)
+	}
 
 	cleaned := path.Clean(filePath)
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {

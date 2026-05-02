@@ -6,8 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 
 	internallanguage "diffscope-package-manager/internal/language"
 	"diffscope-package-manager/packagearchive"
@@ -15,26 +13,9 @@ import (
 	"diffscope-package-manager/packagedatabase/model"
 	"diffscope-package-manager/packageinfo"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"gorm.io/gorm"
-)
-
-var (
-	inspectSectionStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("6"))
-	inspectKeyStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("6"))
-	inspectEmptyStyle = lipgloss.NewStyle().
-				Faint(true)
-	inspectOKStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("2"))
-	inspectWarningStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("3"))
-	inspectErrorStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("1"))
 )
 
 type packageFileReader struct {
@@ -84,7 +65,9 @@ type inspectPackageJSON struct {
 }
 
 type inspectDependencyJSON struct {
-	Reference string `json:"reference"`
+	ID        string `json:"id"`
+	Version   string `json:"version"`
+	Name      any    `json:"name,omitempty"`
 	Installed bool   `json:"installed"`
 	Status    string `json:"status"`
 }
@@ -105,7 +88,10 @@ type inspectSingerJSON struct {
 }
 
 type inspectImportJSON struct {
-	Reference          string `json:"reference"`
+	ID                 string `json:"id"`
+	Version            string `json:"version"`
+	InferenceID        string `json:"inferenceId"`
+	Name               any    `json:"name,omitempty"`
 	PackageInstalled   bool   `json:"packageInstalled"`
 	InferenceInstalled bool   `json:"inferenceInstalled"`
 	Status             string `json:"status"`
@@ -119,11 +105,13 @@ type inspectSingerDemoAudioJSON struct {
 
 type inspectDependencyStatus struct {
 	Reference packageinfo.PackageReference
+	Name      *packageinfo.MultilingualText
 	Installed bool
 }
 
 type inspectImportStatus struct {
 	Reference          packageinfo.PackageReference
+	Name               *packageinfo.MultilingualText
 	PackageInstalled   bool
 	InferenceInstalled bool
 }
@@ -234,13 +222,26 @@ func openPackageFileReader(packageFilePath string) (packageFileReader, error) {
 }
 
 func inspectInstalledStatus(db *gorm.DB, inspection packagearchive.PackageInspection) (inspectStatus, error) {
+	var status inspectStatus
+	err := db.Transaction(func(tx *gorm.DB) error {
+		var err error
+		status, err = inspectInstalledStatusInTx(tx, inspection)
+		return err
+	})
+	if err != nil {
+		return inspectStatus{}, err
+	}
+	return status, nil
+}
+
+func inspectInstalledStatusInTx(db *gorm.DB, inspection packagearchive.PackageInspection) (inspectStatus, error) {
 	status := inspectStatus{
 		Dependencies: make([]inspectDependencyStatus, 0, len(inspection.Dependencies)),
 		Imports:      make(map[string][]inspectImportStatus, len(inspection.Contributes.Singers)),
 	}
-	currentInferences := make(map[string]struct{}, len(inspection.Contributes.Inferences))
+	currentInferenceNames := make(map[string]*packageinfo.MultilingualText, len(inspection.Contributes.Inferences))
 	for _, inference := range inspection.Contributes.Inferences {
-		currentInferences[inference.ID] = struct{}{}
+		currentInferenceNames[inference.ID] = inference.Name
 	}
 
 	for _, dependency := range inspection.Dependencies {
@@ -251,8 +252,16 @@ func inspectInstalledStatus(db *gorm.DB, inspection packagearchive.PackageInspec
 		if err != nil {
 			return inspectStatus{}, err
 		}
+		var name *packageinfo.MultilingualText
+		if installed {
+			name, err = packageName(db, dependency.PackageID, dependency.Version.String())
+			if err != nil {
+				return inspectStatus{}, err
+			}
+		}
 		status.Dependencies = append(status.Dependencies, inspectDependencyStatus{
 			Reference: dependency,
+			Name:      name,
 			Installed: installed,
 		})
 	}
@@ -265,9 +274,10 @@ func inspectInstalledStatus(db *gorm.DB, inspection packagearchive.PackageInspec
 			}
 
 			if isCurrentPackageImport(inspection, imported) {
-				_, installedInference := currentInferences[imported.InferenceID]
+				name, installedInference := currentInferenceNames[imported.InferenceID]
 				imports = append(imports, inspectImportStatus{
 					Reference:          imported,
+					Name:               name,
 					PackageInstalled:   true,
 					InferenceInstalled: installedInference,
 				})
@@ -280,15 +290,23 @@ func inspectInstalledStatus(db *gorm.DB, inspection packagearchive.PackageInspec
 			}
 
 			installedInference := false
+			var name *packageinfo.MultilingualText
 			if installedPackage {
 				installedInference, err = inferenceInstalled(db, imported.PackageID, imported.Version.String(), imported.InferenceID)
 				if err != nil {
 					return inspectStatus{}, err
 				}
+				if installedInference {
+					name, err = inferenceName(db, imported.PackageID, imported.Version.String(), imported.InferenceID)
+					if err != nil {
+						return inspectStatus{}, err
+					}
+				}
 			}
 
 			imports = append(imports, inspectImportStatus{
 				Reference:          imported,
+				Name:               name,
 				PackageInstalled:   installedPackage,
 				InferenceInstalled: installedInference,
 			})
@@ -344,7 +362,9 @@ func buildInspectData(packageFilePath string, inspection packagearchive.PackageI
 
 	for _, dependency := range status.Dependencies {
 		data.Dependencies = append(data.Dependencies, inspectDependencyJSON{
-			Reference: dependency.Reference.String(),
+			ID:        dependency.Reference.PackageID,
+			Version:   dependency.Reference.Version.String(),
+			Name:      multilingualJSONValue(dependency.Name, languageCode),
 			Installed: dependency.Installed,
 			Status:    dependencyStatusText(dependency),
 		})
@@ -370,7 +390,10 @@ func buildInspectData(packageFilePath string, inspection packagearchive.PackageI
 
 		for _, imported := range status.Imports[singer.ID] {
 			item.Imports = append(item.Imports, inspectImportJSON{
-				Reference:          imported.Reference.String(),
+				ID:                 imported.Reference.PackageID,
+				Version:            imported.Reference.Version.String(),
+				InferenceID:        imported.Reference.InferenceID,
+				Name:               multilingualJSONValue(imported.Name, languageCode),
 				PackageInstalled:   imported.PackageInstalled,
 				InferenceInstalled: imported.InferenceInstalled,
 				Status:             importStatusText(imported),
@@ -424,7 +447,7 @@ func printInspectText(out io.Writer, inspection packagearchive.PackageInspection
 		fmt.Fprintf(
 			out,
 			"  %s  %s\n",
-			dependency.Reference.String(),
+			referenceDisplay(dependency.Name, dependency.Reference, languageCode),
 			dependencyStatusLabel(dependency),
 		)
 	}
@@ -459,7 +482,7 @@ func printInspectText(out io.Writer, inspection packagearchive.PackageInspection
 			fmt.Fprintf(
 				out,
 				"      %s  %s\n",
-				imported.Reference.String(),
+				referenceDisplay(imported.Name, imported.Reference, languageCode),
 				importStatusLabel(imported),
 			)
 		}
@@ -473,86 +496,6 @@ func printInspectText(out io.Writer, inspection packagearchive.PackageInspection
 			}
 		}
 	}
-}
-
-func printOptionalText(out io.Writer, label string, text *packageinfo.MultilingualText, languageCode string) {
-	if text == nil {
-		return
-	}
-	printRequiredText(out, label, text, languageCode)
-}
-
-func printRequiredText(out io.Writer, label string, text *packageinfo.MultilingualText, languageCode string) {
-	if languageCode == "*" {
-		values := multilingualTextMap(text)
-		indent, labelKey := splitTextLabel(label)
-		for _, languageKey := range sortedMultilingualKeys(text) {
-			printField(out, indent, fmt.Sprintf("%s[%s]", labelKey, languageKey), values[languageKey])
-		}
-		return
-	}
-	indent, key := splitTextLabel(label)
-	printField(out, indent, key, selectMultilingualText(text, languageCode))
-}
-
-func selectMultilingualText(text *packageinfo.MultilingualText, languageCode string) string {
-	values := multilingualTextMap(text)
-	if len(values) == 0 {
-		return ""
-	}
-
-	available := make([]string, 0, len(values))
-	for key := range values {
-		if key != "_" {
-			available = append(available, key)
-		}
-	}
-	if matched, ok := internallanguage.BestMatch(languageCode, available); ok {
-		return values[matched]
-	}
-	return values["_"]
-}
-
-func sortedMultilingualKeys(text *packageinfo.MultilingualText) []string {
-	values := multilingualTextMap(text)
-	keys := make([]string, 0, len(values))
-	if _, ok := values["_"]; ok {
-		keys = append(keys, "_")
-	}
-	extraKeys := make([]string, 0, len(values))
-	for key := range values {
-		if key != "_" {
-			extraKeys = append(extraKeys, key)
-		}
-	}
-	sort.Strings(extraKeys)
-	keys = append(keys, extraKeys...)
-	return keys
-}
-
-func multilingualTextMap(text *packageinfo.MultilingualText) map[string]string {
-	if text == nil {
-		return nil
-	}
-	values := make(map[string]string, len(text.Texts)+1)
-	values["_"] = text.Default
-	for key, value := range text.Texts {
-		if key == "_" {
-			continue
-		}
-		values[key] = value
-	}
-	return values
-}
-
-func multilingualJSONValue(text *packageinfo.MultilingualText, languageCode string) any {
-	if text == nil {
-		return nil
-	}
-	if languageCode == "*" {
-		return multilingualTextMap(text)
-	}
-	return selectMultilingualText(text, languageCode)
 }
 
 func importStatusText(status inspectImportStatus) string {
@@ -573,22 +516,6 @@ func dependencyStatusText(status inspectDependencyStatus) string {
 	return "missingDependency"
 }
 
-func printSectionTitle(out io.Writer, title string) {
-	fmt.Fprintln(out, inspectSectionStyle.Render(title))
-}
-
-func printSubsectionLabel(out io.Writer, indent string, label string) {
-	fmt.Fprintf(out, "%s%s\n", indent, inspectKeyStyle.Render(label+":"))
-}
-
-func printField(out io.Writer, indent string, key string, value string) {
-	fmt.Fprintf(out, "%s%s %s\n", indent, inspectKeyStyle.Render(key+":"), value)
-}
-
-func printEmpty(out io.Writer, indent string) {
-	fmt.Fprintf(out, "%s%s\n", indent, inspectEmptyStyle.Render("(none)"))
-}
-
 func dependencyStatusLabel(status inspectDependencyStatus) string {
 	if status.Installed {
 		return inspectOKStyle.Render("✓ Installed")
@@ -605,11 +532,6 @@ func importStatusLabel(status inspectImportStatus) string {
 	default:
 		return inspectOKStyle.Render("✓ Ready")
 	}
-}
-
-func splitTextLabel(label string) (string, string) {
-	trimmed := strings.TrimLeft(label, " ")
-	return label[:len(label)-len(trimmed)], trimmed
 }
 
 func writeInspectError(jsonOutput bool, out io.Writer, code string, message string, err error) error {

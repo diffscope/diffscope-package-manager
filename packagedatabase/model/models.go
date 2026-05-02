@@ -117,7 +117,7 @@ func (SingerMultilingualInfo) TableName() string {
 
 // SingerDemoAudio stores a singer demo audio slot.
 type SingerDemoAudio struct {
-	DemoIndex      int    `gorm:"column:demo_index;primaryKey;not null"`
+	Index          int    `gorm:"column:index;primaryKey;not null"`
 	SingerID       string `gorm:"column:singer_id;type:text;primaryKey;not null"`
 	PackageID      string `gorm:"column:package_id;type:text;primaryKey;not null"`
 	PackageVersion string `gorm:"column:package_version;type:text;primaryKey;not null"`
@@ -137,7 +137,7 @@ type SingerDemoAudioMultilingualInfo struct {
 	Language       string          `gorm:"column:language;type:text;primaryKey;not null"`
 	Name           *string         `gorm:"column:name;type:text"`
 	Audio          *string         `gorm:"column:audio;type:text"`
-	DemoAudio      SingerDemoAudio `gorm:"foreignKey:DemoIndex,SingerID,PackageID,PackageVersion;references:DemoIndex,SingerID,PackageID,PackageVersion;constraint:OnDelete:CASCADE"`
+	DemoAudio      SingerDemoAudio `gorm:"foreignKey:DemoIndex,SingerID,PackageID,PackageVersion;references:Index,SingerID,PackageID,PackageVersion;constraint:OnDelete:CASCADE"`
 }
 
 func (SingerDemoAudioMultilingualInfo) TableName() string {
