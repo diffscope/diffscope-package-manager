@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -31,7 +32,8 @@ func TestShowInfoJSONForInferenceFiltersModulesAndIncludesInstallation(t *testin
 	if payload.Data.Type != "inference" {
 		t.Fatalf("type = %q", payload.Data.Type)
 	}
-	if payload.Data.Installation.Path != filepath.Join(packagesDir, "hash-package") ||
+	packageDir := installedPackageDir(packagesDir, "vendor/package", "1.0.0.0")
+	if payload.Data.Installation.Path != packageDir ||
 		payload.Data.Installation.Hash != "hash-package" ||
 		payload.Data.Installation.InstalledAt != "1970-01-01T00:00:02.345Z" {
 		t.Fatalf("installation = %#v", payload.Data.Installation)
@@ -41,7 +43,7 @@ func TestShowInfoJSONForInferenceFiltersModulesAndIncludesInstallation(t *testin
 		payload.Data.Package.Name != "Package" {
 		t.Fatalf("package = %#v", payload.Data.Package)
 	}
-	if payload.Data.Package.Readme != filepath.Join(packagesDir, "hash-package", "README.md") ||
+	if payload.Data.Package.Readme != filepath.Join(packageDir, "README.md") ||
 		payload.Data.Package.License != filepath.Join(packagesDir, "absolute-license.txt") {
 		t.Fatalf("package paths = readme %#v license %#v", payload.Data.Package.Readme, payload.Data.Package.License)
 	}
@@ -53,7 +55,8 @@ func TestShowInfoJSONForInferenceFiltersModulesAndIncludesInstallation(t *testin
 	}
 	if len(payload.Data.Inferences) != 1 ||
 		payload.Data.Inferences[0].ID != "acoustic" ||
-		payload.Data.Inferences[0].Name != "Acoustic" {
+		payload.Data.Inferences[0].Name != "Acoustic" ||
+		payload.Data.Inferences[0].Path != filepath.Join(packageDir, "acoustic.json") {
 		t.Fatalf("inferences = %#v", payload.Data.Inferences)
 	}
 	if len(payload.Data.Singers) != 0 {
@@ -71,7 +74,7 @@ func TestShowInfoTextForSingerFiltersModulesAndOmitsStatuses(t *testing.T) {
 
 	got := output.String()
 	if !strings.Contains(got, "Installation") ||
-		!strings.Contains(got, "Path: "+filepath.Join(packagesDir, "hash-package")) ||
+		!strings.Contains(got, "Path: "+installedPackageDir(packagesDir, "vendor/package", "1.0.0.0")) ||
 		!strings.Contains(got, "Hash: hash-package") ||
 		!strings.Contains(got, "InstalledAt: ") {
 		t.Fatalf("output missing installation block:\n%s", got)
@@ -83,10 +86,11 @@ func TestShowInfoTextForSingerFiltersModulesAndOmitsStatuses(t *testing.T) {
 		t.Fatalf("singer target should not print Inferences block:\n%s", got)
 	}
 	if !strings.Contains(got, "Singers") ||
+		!strings.Contains(got, "singer -> "+filepath.Join(installedPackageDir(packagesDir, "vendor/package", "1.0.0.0"), "singer.json")) ||
 		!strings.Contains(got, "Singer") ||
 		!strings.Contains(got, "Acoustic (vendor/package@1.0.0.0:acoustic)") ||
-		!strings.Contains(got, filepath.Join(packagesDir, "hash-package", "avatar.png")) ||
-		!strings.Contains(got, filepath.Join(packagesDir, "hash-package", "background.png")) {
+		!strings.Contains(got, filepath.Join(installedPackageDir(packagesDir, "vendor/package", "1.0.0.0"), "avatar.png")) ||
+		!strings.Contains(got, filepath.Join(installedPackageDir(packagesDir, "vendor/package", "1.0.0.0"), "background.png")) {
 		t.Fatalf("output missing singer details:\n%s", got)
 	}
 	if strings.Contains(got, "Ready") ||
@@ -249,6 +253,26 @@ func makeInfoTestDatabase(t *testing.T) string {
 		ImportedPackageVersion: "1.0.0.0",
 	}).Error; err != nil {
 		t.Fatalf("create singer import: %v", err)
+	}
+
+	packageDir := installedPackageDir(packagesDir, "vendor/package", "1.0.0.0")
+	if err := os.MkdirAll(packageDir, 0o755); err != nil {
+		t.Fatalf("create package dir: %v", err)
+	}
+	files := map[string]string{
+		"desc.json": `{
+			"contributes": {
+				"inferences": ["acoustic.json"],
+				"singers": ["singer.json"]
+			}
+		}`,
+		"acoustic.json": `{"id": "acoustic"}`,
+		"singer.json":   `{"id": "singer"}`,
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(packageDir, name), []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
 	}
 
 	return packagesDir

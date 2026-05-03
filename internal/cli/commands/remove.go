@@ -55,9 +55,10 @@ type removeReporter interface {
 // NewRemoveCmd creates the remove command.
 func NewRemoveCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "remove <package>...",
-		Short: "Remove one or more packages",
-		Args:  cobra.MinimumNArgs(1),
+		Use:     "remove <package>...",
+		Aliases: []string{"rm", "uninstall"},
+		Short:   "Remove one or more packages",
+		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cascade, err := cmd.Flags().GetBool("cascade")
 			if err != nil {
@@ -152,7 +153,7 @@ func RemovePackages(targets []string, packagesDir string, cascade bool, ignoreNo
 	removed := 0
 	for _, pkg := range toRemove {
 		reporter.RemoveStart(pkg)
-		if err := os.RemoveAll(filepath.Join(packagesDir, pkg.Package.Hash)); err != nil {
+		if err := os.RemoveAll(installedPackageDir(packagesDir, pkg.Package.ID, pkg.Package.Version)); err != nil {
 			return reporter.Error("IO_ERROR", fmt.Sprintf("remove package directory for %s: %v", removePackageRef(pkg.Package), err), nil, err)
 		}
 		reporter.Result(pkg)
@@ -267,7 +268,7 @@ func lockRemovePackageDirs(packagesDir string, packages []removePackage) ([]*pac
 	locks := make([]*packagedatabase.PackageDirLock, 0, len(packages))
 	seen := make(map[string]struct{}, len(packages))
 	for _, pkg := range packages {
-		dir := filepath.Join(packagesDir, pkg.Package.Hash)
+		dir := installedPackageDir(packagesDir, pkg.Package.ID, pkg.Package.Version)
 		key, err := filepath.Abs(dir)
 		if err != nil {
 			unlockRemovePackageDirs(locks)

@@ -49,6 +49,7 @@ type infoDependencyJSON struct {
 
 type infoSingerJSON struct {
 	ID         string                       `json:"id"`
+	Path       string                       `json:"path"`
 	Class      string                       `json:"class"`
 	Name       any                          `json:"name,omitempty"`
 	Avatar     any                          `json:"avatar,omitempty"`
@@ -131,21 +132,25 @@ func ShowInfo(target string, packagesDir string, languageCode string, jsonOutput
 		return writeInfoError(jsonOutput, out, "NOT_FOUND", err.Error(), nil, err)
 	}
 	filterInfoTarget(&info, resolved)
-	packageDir, err := filepath.Abs(filepath.Join(packagesDir, info.Package.Hash))
+	packageDir, err := filepath.Abs(installedPackageDir(packagesDir, info.Package.ID, info.Package.Version))
 	if err != nil {
 		return writeInfoError(jsonOutput, out, "IO_ERROR", fmt.Sprintf("resolve package installation path: %v", err), nil, err)
 	}
 	absolutizeInfoPaths(&info, packageDir)
+	contributionPaths, err := readInstalledContributionPaths(packageDir)
+	if err != nil {
+		return writeInfoError(jsonOutput, out, "SCHEMA_ERROR", err.Error(), nil, err)
+	}
 
 	if jsonOutput {
 		return json.NewEncoder(out).Encode(infoOutput{
 			OK:      true,
 			Command: "info",
-			Data:    buildInfoData(info, resolved.Type, languageCode, packageDir),
+			Data:    buildInfoData(info, resolved.Type, contributionPaths, languageCode, packageDir),
 		})
 	}
 
-	printInfoText(out, info, resolved.Type, languageCode, packageDir)
+	printInfoText(out, info, resolved.Type, contributionPaths, languageCode, packageDir)
 	return nil
 }
 
@@ -572,7 +577,7 @@ func absolutizeInfoPath(value string, packageDir string) string {
 	return filepath.Join(packageDir, value)
 }
 
-func buildInfoData(info infoPackage, targetType packageinfo.PackageReferenceType, languageCode string, packageDir string) infoData {
+func buildInfoData(info infoPackage, targetType packageinfo.PackageReferenceType, contributionPaths contributionPaths, languageCode string, packageDir string) infoData {
 	data := infoData{
 		Type: targetTypeText(targetType),
 		Installation: infoInstallationJSON{
@@ -606,6 +611,7 @@ func buildInfoData(info infoPackage, targetType packageinfo.PackageReferenceType
 	for _, inference := range info.Inspection.Contributes.Inferences {
 		data.Inferences = append(data.Inferences, inspectInferenceJSON{
 			ID:   inference.ID,
+			Path: contributionPaths.Inferences[inference.ID],
 			Name: multilingualJSONValue(inference.Name, languageCode),
 		})
 	}
@@ -613,6 +619,7 @@ func buildInfoData(info infoPackage, targetType packageinfo.PackageReferenceType
 	for _, singer := range info.Inspection.Contributes.Singers {
 		item := infoSingerJSON{
 			ID:         singer.ID,
+			Path:       contributionPaths.Singers[singer.ID],
 			Class:      singer.Class,
 			Name:       multilingualJSONValue(singer.Name, languageCode),
 			Avatar:     multilingualJSONValue(singer.Avatar, languageCode),
@@ -641,7 +648,7 @@ func buildInfoData(info infoPackage, targetType packageinfo.PackageReferenceType
 	return data
 }
 
-func printInfoText(out io.Writer, info infoPackage, targetType packageinfo.PackageReferenceType, languageCode string, packageDir string) {
+func printInfoText(out io.Writer, info infoPackage, targetType packageinfo.PackageReferenceType, contributionPaths contributionPaths, languageCode string, packageDir string) {
 	printSectionTitle(out, "Installation")
 	printField(out, "  ", "Path", packageDir)
 	printField(out, "  ", "Hash", info.Package.Hash)
@@ -676,7 +683,7 @@ func printInfoText(out io.Writer, info infoPackage, targetType packageinfo.Packa
 			printEmpty(out, "  ")
 		}
 		for _, inference := range info.Inspection.Contributes.Inferences {
-			fmt.Fprintf(out, "  %s\n", inference.ID)
+			fmt.Fprintf(out, "  %s -> %s\n", inference.ID, contributionPaths.Inferences[inference.ID])
 			printOptionalText(out, "    Name", inference.Name, languageCode)
 		}
 		fmt.Fprintln(out)
@@ -688,7 +695,7 @@ func printInfoText(out io.Writer, info infoPackage, targetType packageinfo.Packa
 			printEmpty(out, "  ")
 		}
 		for _, singer := range info.Inspection.Contributes.Singers {
-			fmt.Fprintf(out, "  %s\n", singer.ID)
+			fmt.Fprintf(out, "  %s -> %s\n", singer.ID, contributionPaths.Singers[singer.ID])
 			printOptionalText(out, "    Name", singer.Name, languageCode)
 			printField(out, "    ", "Class", singer.Class)
 			printOptionalText(out, "    Avatar", singer.Avatar, languageCode)

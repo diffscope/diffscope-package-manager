@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,9 +51,9 @@ avatar = "assets/avatar.png"
 background = "assets/background.png"
 demoAudio = "assets/demo.ogg"
 `)
-	writePackTestPNG(t, sourceDir, "assets/avatar.png", 2, 2)
-	writePackTestPNG(t, sourceDir, "assets/background.png", 4, 2)
-	writePackTestFile(t, sourceDir, "assets/demo.ogg", string([]byte{'O', 'g', 'g', 'S', 0, 1, 'v', 'o', 'r', 'b', 'i', 's'}))
+	writePackTestPNG(t, sourceDir, "singers/assets/avatar.png", 2, 2)
+	writePackTestPNG(t, sourceDir, "singers/assets/background.png", 4, 2)
+	writePackTestFile(t, sourceDir, "singers/assets/demo.ogg", string([]byte{'O', 'g', 'g', 'S', 0, 1, 'v', 'o', 'r', 'b', 'i', 's'}))
 
 	outputFile := filepath.Join(t.TempDir(), "sample.dspk")
 	plan, err := PlanPackage(sourceDir, PackOptions{OutputFile: outputFile})
@@ -91,8 +92,21 @@ demoAudio = "assets/demo.ogg"
 			t.Fatalf("package included source description %s", forbidden)
 		}
 	}
-	if _, err := InspectPackage(bytes.NewReader(data)); err != nil {
+	inspection, err := InspectPackage(bytes.NewReader(data))
+	if err != nil {
 		t.Fatalf("InspectPackage(created package) error = %v", err)
+	}
+	singerJSON := zipEntryBody(t, data, "singers/main.json")
+	for _, want := range []string{`"avatar": "assets/avatar.png"`, `"background": "assets/background.png"`, `"path": "assets/demo.ogg"`} {
+		if !strings.Contains(singerJSON, want) {
+			t.Fatalf("generated singer description missing %q:\n%s", want, singerJSON)
+		}
+	}
+	singer := inspection.Contributes.Singers[0]
+	if singer.Avatar.Default != "singers/assets/avatar.png" ||
+		singer.Background.Default != "singers/assets/background.png" ||
+		singer.DemoAudio[0].Audio.Default != "singers/assets/demo.ogg" {
+		t.Fatalf("inspection singer paths = %#v", singer)
 	}
 }
 
@@ -162,9 +176,9 @@ func TestPlanPackageWarnsForSingerResourceFormats(t *testing.T) {
 		"imports": ["acoustic"],
 		"level": 1
 	}`)
-	writePackTestPNG(t, sourceDir, "assets/avatar.png", 4, 2)
-	writePackTestFile(t, sourceDir, "assets/background.txt", "not png")
-	writePackTestFile(t, sourceDir, "assets/demo.wav", "not ogg")
+	writePackTestPNG(t, sourceDir, "singers/assets/avatar.png", 4, 2)
+	writePackTestFile(t, sourceDir, "singers/assets/background.txt", "not png")
+	writePackTestFile(t, sourceDir, "singers/assets/demo.wav", "not ogg")
 
 	plan, err := PlanPackage(sourceDir, PackOptions{})
 	if err != nil {
@@ -257,4 +271,29 @@ func zipEntryNames(t *testing.T, data []byte) map[string]bool {
 		entries[file.Name] = true
 	}
 	return entries
+}
+
+func zipEntryBody(t *testing.T, data []byte, name string) string {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("open zip: %v", err)
+	}
+	for _, file := range reader.File {
+		if file.Name != name {
+			continue
+		}
+		stream, err := file.Open()
+		if err != nil {
+			t.Fatalf("open %s: %v", name, err)
+		}
+		defer stream.Close()
+		body, err := io.ReadAll(stream)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		return string(body)
+	}
+	t.Fatalf("zip entry %s not found", name)
+	return ""
 }

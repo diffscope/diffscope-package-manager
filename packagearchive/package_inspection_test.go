@@ -81,7 +81,13 @@ func TestInspectPackage(t *testing.T) {
 	if singer.ID != "singer" || singer.Class != "DiffSingerSinger" {
 		t.Fatalf("Singer = %#v", singer)
 	}
-	if len(singer.DemoAudio) != 1 || singer.DemoAudio[0].Audio.Default != "demo.wav" {
+	if singer.Avatar == nil || singer.Avatar.Default != "singers/avatar.png" {
+		t.Fatalf("Avatar = %#v", singer.Avatar)
+	}
+	if singer.Background == nil || singer.Background.Default != "singers/background.png" {
+		t.Fatalf("Background = %#v", singer.Background)
+	}
+	if len(singer.DemoAudio) != 1 || singer.DemoAudio[0].Audio.Default != "singers/demo.wav" {
 		t.Fatalf("DemoAudio = %#v", singer.DemoAudio)
 	}
 	if len(singer.Imports) != 3 {

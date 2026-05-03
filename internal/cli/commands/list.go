@@ -65,9 +65,10 @@ var listColumns = map[string]listColumn{
 // NewListCmd creates the list command.
 func NewListCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List installed packages",
-		Args:  cobra.NoArgs,
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List installed packages",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			languageCode, err := cmd.Flags().GetString("language")
 			if err != nil {

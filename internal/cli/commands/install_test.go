@@ -41,7 +41,7 @@ func TestInstallPackagesInstallsArchiveAndWritesDatabase(t *testing.T) {
 	if pkg.Hash == "" {
 		t.Fatalf("installed package hash is empty")
 	}
-	if _, err := os.Stat(filepath.Join(packagesDir, pkg.Hash, "desc.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(installedPackageDir(packagesDir, pkg.ID, pkg.Version), "desc.json")); err != nil {
 		t.Fatalf("extracted desc.json: %v", err)
 	}
 	if !strings.Contains(output.String(), "installed") {

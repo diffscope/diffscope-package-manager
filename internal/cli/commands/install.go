@@ -492,7 +492,7 @@ func ensureInstallDirectoriesAvailable(packagesDir string, packages []installPac
 		if pkg.Action == installActionSkip {
 			continue
 		}
-		destination := filepath.Join(packagesDir, pkg.Hash)
+		destination := installedPackageDir(packagesDir, pkg.Inspection.ID, pkg.Inspection.Version.String())
 		if _, err := os.Stat(destination); err == nil {
 			return fmt.Errorf("package directory already exists: %s", destination)
 		} else if !os.IsNotExist(err) {
@@ -512,7 +512,7 @@ func extractInstallPackages(ctx context.Context, packagesDir string, packages []
 		if pkg.Action == installActionSkip {
 			continue
 		}
-		destination := filepath.Join(packagesDir, pkg.Hash)
+		destination := installedPackageDir(packagesDir, pkg.Inspection.ID, pkg.Inspection.Version.String())
 		mu.Lock()
 		createdDirs = append(createdDirs, destination)
 		mu.Unlock()
@@ -800,7 +800,7 @@ func removeOverwrittenPackageDirs(packagesDir string, packages []installPackage)
 		if pkg.Action != installActionOverwrite || pkg.Existing == nil || pkg.Existing.Hash == "" || pkg.Existing.Hash == pkg.Hash {
 			continue
 		}
-		_ = os.RemoveAll(filepath.Join(packagesDir, pkg.Existing.Hash))
+		_ = os.RemoveAll(installedPackageDir(packagesDir, pkg.Existing.ID, pkg.Existing.Version))
 	}
 }
 

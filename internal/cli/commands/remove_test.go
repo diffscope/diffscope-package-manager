@@ -22,7 +22,7 @@ func TestRemovePackagesRemovesPackageDatabaseRowsAndDirectory(t *testing.T) {
 	}
 
 	assertRemovePackageMissing(t, packagesDir, "vendor/leaf", "1.0.0.0")
-	if _, err := os.Stat(filepath.Join(packagesDir, "hash-leaf")); !os.IsNotExist(err) {
+	if _, err := os.Stat(installedPackageDir(packagesDir, "vendor/leaf", "1.0.0.0")); !os.IsNotExist(err) {
 		t.Fatalf("leaf package directory still exists or stat failed: %v", err)
 	}
 	if !strings.Contains(output.String(), "vendor/leaf@1.0.0.0 [removed]") {
@@ -61,9 +61,13 @@ func TestRemovePackagesCascadeRemovesRecursiveDependents(t *testing.T) {
 	assertRemovePackageMissing(t, packagesDir, "vendor/mid", "1.0.0.0")
 	assertRemovePackageMissing(t, packagesDir, "vendor/top", "1.0.0.0")
 	assertRemovePackageExists(t, packagesDir, "vendor/leaf", "1.0.0.0")
-	for _, hash := range []string{"hash-base", "hash-mid", "hash-top"} {
-		if _, err := os.Stat(filepath.Join(packagesDir, hash)); !os.IsNotExist(err) {
-			t.Fatalf("package directory %s still exists or stat failed: %v", hash, err)
+	for _, pkg := range []model.Package{
+		{ID: "vendor/base", Version: "1.0.0.0"},
+		{ID: "vendor/mid", Version: "1.0.0.0"},
+		{ID: "vendor/top", Version: "1.0.0.0"},
+	} {
+		if _, err := os.Stat(installedPackageDir(packagesDir, pkg.ID, pkg.Version)); !os.IsNotExist(err) {
+			t.Fatalf("package directory for %s@%s still exists or stat failed: %v", pkg.ID, pkg.Version, err)
 		}
 	}
 	if !strings.Contains(output.String(), "Summary: 3 removed") {
@@ -80,7 +84,7 @@ func TestRemovePackagesDryRunAndIgnoreNonExistentDoNotMutate(t *testing.T) {
 	}
 
 	assertRemovePackageExists(t, packagesDir, "vendor/leaf", "1.0.0.0")
-	if _, err := os.Stat(filepath.Join(packagesDir, "hash-leaf")); err != nil {
+	if _, err := os.Stat(installedPackageDir(packagesDir, "vendor/leaf", "1.0.0.0")); err != nil {
 		t.Fatalf("leaf package directory missing after dry run: %v", err)
 	}
 	if !strings.Contains(output.String(), "[DRY RUN] vendor/leaf@1.0.0.0") ||
@@ -150,7 +154,7 @@ func makeRemoveTestDatabase(t *testing.T) string {
 		t.Fatalf("create dependencies: %v", err)
 	}
 	for _, pkg := range packages {
-		dir := filepath.Join(packagesDir, pkg.Hash)
+		dir := installedPackageDir(packagesDir, pkg.ID, pkg.Version)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("create package dir %s: %v", dir, err)
 		}

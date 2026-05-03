@@ -74,11 +74,13 @@ type inspectDependencyJSON struct {
 
 type inspectInferenceJSON struct {
 	ID   string `json:"id"`
+	Path string `json:"path"`
 	Name any    `json:"name,omitempty"`
 }
 
 type inspectSingerJSON struct {
 	ID         string                       `json:"id"`
+	Path       string                       `json:"path"`
 	Class      string                       `json:"class"`
 	Name       any                          `json:"name,omitempty"`
 	Avatar     any                          `json:"avatar,omitempty"`
@@ -184,12 +186,16 @@ func InspectPackageFile(packageFilePath string, packagesDir string, languageCode
 	if err != nil {
 		return writeInspectError(jsonOutput, out, "IO_ERROR", err.Error(), err)
 	}
+	contributionPaths, err := readArchiveContributionPaths(reader)
+	if err != nil {
+		return writeInspectError(jsonOutput, out, "SCHEMA_ERROR", err.Error(), err)
+	}
 
 	if languageCode == "" {
 		languageCode = internallanguage.CurrentCode()
 	}
 
-	data := buildInspectData(absolutePackageFilePath, inspection, status, languageCode, packageHash)
+	data := buildInspectData(absolutePackageFilePath, inspection, status, contributionPaths, languageCode, packageHash)
 	if jsonOutput {
 		return json.NewEncoder(out).Encode(inspectOutput{
 			OK:      true,
@@ -198,7 +204,7 @@ func InspectPackageFile(packageFilePath string, packagesDir string, languageCode
 		})
 	}
 
-	printInspectText(out, inspection, status, absolutePackageFilePath, packageHash, languageCode)
+	printInspectText(out, inspection, status, contributionPaths, absolutePackageFilePath, packageHash, languageCode)
 	return nil
 }
 
@@ -339,7 +345,7 @@ func inferenceInstalled(db *gorm.DB, packageID string, version string, inference
 	return count > 0, err
 }
 
-func buildInspectData(packageFilePath string, inspection packagearchive.PackageInspection, status inspectStatus, languageCode string, packageHash string) inspectData {
+func buildInspectData(packageFilePath string, inspection packagearchive.PackageInspection, status inspectStatus, contributionPaths contributionPaths, languageCode string, packageHash string) inspectData {
 	data := inspectData{
 		File: inspectFileJSON{
 			Path: packageFilePath,
@@ -373,6 +379,7 @@ func buildInspectData(packageFilePath string, inspection packagearchive.PackageI
 	for _, inference := range inspection.Contributes.Inferences {
 		data.Inferences = append(data.Inferences, inspectInferenceJSON{
 			ID:   inference.ID,
+			Path: contributionPaths.Inferences[inference.ID],
 			Name: multilingualJSONValue(inference.Name, languageCode),
 		})
 	}
@@ -380,6 +387,7 @@ func buildInspectData(packageFilePath string, inspection packagearchive.PackageI
 	for _, singer := range inspection.Contributes.Singers {
 		item := inspectSingerJSON{
 			ID:         singer.ID,
+			Path:       contributionPaths.Singers[singer.ID],
 			Class:      singer.Class,
 			Name:       multilingualJSONValue(singer.Name, languageCode),
 			Avatar:     multilingualJSONValue(singer.Avatar, languageCode),
@@ -414,7 +422,7 @@ func buildInspectData(packageFilePath string, inspection packagearchive.PackageI
 	return data
 }
 
-func printInspectText(out io.Writer, inspection packagearchive.PackageInspection, status inspectStatus, packageFilePath string, packageHash string, languageCode string) {
+func printInspectText(out io.Writer, inspection packagearchive.PackageInspection, status inspectStatus, contributionPaths contributionPaths, packageFilePath string, packageHash string, languageCode string) {
 	if languageCode == "" {
 		languageCode = internallanguage.CurrentCode()
 	}
@@ -458,7 +466,7 @@ func printInspectText(out io.Writer, inspection packagearchive.PackageInspection
 		printEmpty(out, "  ")
 	}
 	for _, inference := range inspection.Contributes.Inferences {
-		fmt.Fprintf(out, "  %s\n", inference.ID)
+		fmt.Fprintf(out, "  %s -> %s\n", inference.ID, contributionPaths.Inferences[inference.ID])
 		printOptionalText(out, "    Name", inference.Name, languageCode)
 	}
 	fmt.Fprintln(out)
@@ -468,7 +476,7 @@ func printInspectText(out io.Writer, inspection packagearchive.PackageInspection
 		printEmpty(out, "  ")
 	}
 	for _, singer := range inspection.Contributes.Singers {
-		fmt.Fprintf(out, "  %s\n", singer.ID)
+		fmt.Fprintf(out, "  %s -> %s\n", singer.ID, contributionPaths.Singers[singer.ID])
 		printOptionalText(out, "    Name", singer.Name, languageCode)
 		printField(out, "    ", "Class", singer.Class)
 		printOptionalText(out, "    Avatar", singer.Avatar, languageCode)

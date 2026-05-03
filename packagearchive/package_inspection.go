@@ -79,6 +79,9 @@ func InspectPackage(reader ZipReader) (PackageInspection, error) {
 	if err := readJSONFile(files, packageDescriptionPath, &description); err != nil {
 		return PackageInspection{}, err
 	}
+	if err := normalizePackageDescriptionPaths(packageDescriptionPath, &description); err != nil {
+		return PackageInspection{}, fmt.Errorf("normalize paths in %s: %w", packageDescriptionPath, err)
+	}
 	if err := validate.Struct(description); err != nil {
 		return PackageInspection{}, fmt.Errorf("validate %s: %w", packageDescriptionPath, err)
 	}
@@ -145,6 +148,9 @@ func readSingerInspection(
 	var description packageinfo.SingerDescription
 	if err := readJSONFile(files, filePath, &description); err != nil {
 		return SingerInspection{}, err
+	}
+	if err := normalizeSingerDescriptionPaths(filePath, &description); err != nil {
+		return SingerInspection{}, fmt.Errorf("normalize paths in %q: %w", filePath, err)
 	}
 	if err := validate.Struct(description); err != nil {
 		return SingerInspection{}, fmt.Errorf("validate %q: %w", filePath, err)

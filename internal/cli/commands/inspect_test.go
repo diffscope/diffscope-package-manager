@@ -101,8 +101,16 @@ func TestInspectPackageFileJSONReportsInstalledStatus(t *testing.T) {
 	if payload.Data.File.Hash != "" {
 		t.Fatalf("hash = %q, want empty without --hash", payload.Data.File.Hash)
 	}
+	if len(payload.Data.Inferences) != 1 ||
+		payload.Data.Inferences[0].ID != "acoustic" ||
+		payload.Data.Inferences[0].Path != "acoustic.json" {
+		t.Fatalf("inferences = %#v", payload.Data.Inferences)
+	}
 	if len(payload.Data.Singers) != 1 || len(payload.Data.Singers[0].Imports) != 2 {
 		t.Fatalf("singers = %#v", payload.Data.Singers)
+	}
+	if payload.Data.Singers[0].Path != "singer.json" {
+		t.Fatalf("singer path = %q", payload.Data.Singers[0].Path)
 	}
 	gotCurrentImport := payload.Data.Singers[0].Imports[0]
 	if gotCurrentImport.ID != "vendor/package" ||
@@ -183,6 +191,10 @@ func TestInspectPackageFileTextIncludesInstalledReferenceNames(t *testing.T) {
 	}
 	if !strings.Contains(got, "vendor/dep@1.0.0.0:missing") {
 		t.Fatalf("text output should keep unnamed missing import reference:\n%s", got)
+	}
+	if !strings.Contains(got, "acoustic -> acoustic.json") ||
+		!strings.Contains(got, "singer -> singer.json") {
+		t.Fatalf("text output missing contribution paths:\n%s", got)
 	}
 }
 
@@ -303,6 +315,45 @@ func TestInspectPackageFileIncludesCurrentPackageImportNames(t *testing.T) {
 	want := "Acoustic (vendor/package@1.0.0.0:acoustic)"
 	if !strings.Contains(textOutput.String(), want) {
 		t.Fatalf("text output missing %q:\n%s", want, textOutput.String())
+	}
+}
+
+func TestInspectPackageFileOutputsSingerResourcePathsRelativeToPackage(t *testing.T) {
+	packagesDir := t.TempDir()
+	packageFile := filepath.Join(t.TempDir(), "sample.dspk")
+	if err := os.WriteFile(packageFile, makeInspectTestArchiveWithNestedSinger(t), 0o644); err != nil {
+		t.Fatalf("write package file: %v", err)
+	}
+
+	var jsonOutput bytes.Buffer
+	if err := InspectPackageFile(packageFile, packagesDir, "en", true, false, &jsonOutput); err != nil {
+		t.Fatalf("InspectPackageFile() json error = %v", err)
+	}
+
+	var payload inspectOutput
+	if err := json.Unmarshal(jsonOutput.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal output: %v\n%s", err, jsonOutput.String())
+	}
+	if len(payload.Data.Singers) != 1 {
+		t.Fatalf("singers = %#v", payload.Data.Singers)
+	}
+	singer := payload.Data.Singers[0]
+	if singer.Avatar != "singers/assets/avatar.png" ||
+		singer.Background != "singers/assets/background.png" ||
+		len(singer.DemoAudio) != 1 ||
+		singer.DemoAudio[0].Audio != "singers/assets/demo.ogg" {
+		t.Fatalf("singer resource paths = %#v", singer)
+	}
+
+	var textOutput bytes.Buffer
+	if err := InspectPackageFile(packageFile, packagesDir, "en", false, false, &textOutput); err != nil {
+		t.Fatalf("InspectPackageFile() text error = %v", err)
+	}
+	text := textOutput.String()
+	for _, want := range []string{"singers/assets/avatar.png", "singers/assets/background.png", "singers/assets/demo.ogg"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("text output missing %q:\n%s", want, text)
+		}
 	}
 }
 
@@ -450,6 +501,54 @@ func makeInspectTestArchiveWithImports(t *testing.T, imports string) []byte {
 			],
 			"level": 1,
 			"name": "Singer"
+		}`,
+	}
+
+	for name, body := range files {
+		file, err := writer.Create(name)
+		if err != nil {
+			t.Fatalf("create zip entry %q: %v", name, err)
+		}
+		if _, err := file.Write([]byte(body)); err != nil {
+			t.Fatalf("write zip entry %q: %v", name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+func makeInspectTestArchiveWithNestedSinger(t *testing.T) []byte {
+	t.Helper()
+
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	files := map[string]string{
+		"desc.json": `{
+			"contributes": {
+				"inferences": ["inferences/acoustic.json"],
+				"singers": ["singers/main.json"]
+			},
+			"dependencies": [],
+			"id": "vendor/package",
+			"version": "1.0"
+		}`,
+		"inferences/acoustic.json": `{
+			"$version": "1.0",
+			"class": "DiffSingerAcoustic",
+			"id": "acoustic",
+			"level": 1
+		}`,
+		"singers/main.json": `{
+			"$version": "1.0",
+			"avatar": "assets/avatar.png",
+			"background": "assets/background.png",
+			"class": "DiffSingerSinger",
+			"demoAudio": "assets/demo.ogg",
+			"id": "singer",
+			"imports": ["acoustic"],
+			"level": 1
 		}`,
 	}
 

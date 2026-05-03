@@ -228,6 +228,9 @@ func readPackageDescriptionForPacking(ctx *packContext, format string) (descript
 	if err := decodeDescription(desc.data, desc.format, &description); err != nil {
 		return descriptionFile{}, packageinfo.PackageDescription{}, fmt.Errorf("parse %q: %w", desc.sourcePath, err)
 	}
+	if err := normalizePackageDescriptionPaths(desc.sourcePath, &description); err != nil {
+		return descriptionFile{}, packageinfo.PackageDescription{}, fmt.Errorf("normalize paths in %q: %w", desc.sourcePath, err)
+	}
 	if err := ctx.validator.Struct(description); err != nil {
 		return descriptionFile{}, packageinfo.PackageDescription{}, fmt.Errorf("validate %q: %w", desc.sourcePath, err)
 	}
@@ -491,7 +494,11 @@ func validateSingerDescriptionForPacking(
 func validateMultilingualPackagePaths(ctx *packContext, ownerPath string, field string, text *packageinfo.MultilingualText) error {
 	values := multilingualPathValues(text)
 	for key, value := range values {
-		if _, err := existingSourceFilePath(ctx.sourceDir, value); err != nil {
+		resolved, err := resolvePackagePathRelativeTo(ownerPath, value)
+		if err != nil {
+			return fmt.Errorf("pack package: %s[%s] in %q: %w", field, key, ownerPath, err)
+		}
+		if _, err := existingSourceFilePath(ctx.sourceDir, resolved); err != nil {
 			return fmt.Errorf("pack package: %s[%s] in %q: %w", field, key, ownerPath, err)
 		}
 	}
@@ -501,7 +508,11 @@ func validateMultilingualPackagePaths(ctx *packContext, ownerPath string, field 
 func validateSingerImagePaths(ctx *packContext, ownerPath string, field string, text *packageinfo.MultilingualText, requireSquare bool) error {
 	values := multilingualPathValues(text)
 	for key, value := range values {
-		filePath, err := existingSourceFilePath(ctx.sourceDir, value)
+		resolved, err := resolvePackagePathRelativeTo(ownerPath, value)
+		if err != nil {
+			return fmt.Errorf("pack package: %s[%s] in %q: %w", field, key, ownerPath, err)
+		}
+		filePath, err := existingSourceFilePath(ctx.sourceDir, resolved)
 		if err != nil {
 			return fmt.Errorf("pack package: %s[%s] in %q: %w", field, key, ownerPath, err)
 		}
@@ -520,7 +531,11 @@ func validateSingerImagePaths(ctx *packContext, ownerPath string, field string, 
 func validateDemoAudioPaths(ctx *packContext, ownerPath string, field string, text *packageinfo.MultilingualText) error {
 	values := multilingualPathValues(text)
 	for key, value := range values {
-		filePath, err := existingSourceFilePath(ctx.sourceDir, value)
+		resolved, err := resolvePackagePathRelativeTo(ownerPath, value)
+		if err != nil {
+			return fmt.Errorf("pack package: %s[%s] in %q: %w", field, key, ownerPath, err)
+		}
+		filePath, err := existingSourceFilePath(ctx.sourceDir, resolved)
 		if err != nil {
 			return fmt.Errorf("pack package: %s[%s] in %q: %w", field, key, ownerPath, err)
 		}
@@ -771,6 +786,94 @@ func multilingualPathValues(text *packageinfo.MultilingualText) map[string]strin
 		values[key] = value
 	}
 	return values
+}
+
+func normalizePackageDescriptionPaths(ownerPath string, description *packageinfo.PackageDescription) error {
+	if description == nil {
+		return nil
+	}
+	for index, value := range description.Contributes.Inferences {
+		normalized, err := resolvePackagePathRelativeTo(ownerPath, value)
+		if err != nil {
+			return fmt.Errorf("contributes.inferences[%d]: %w", index, err)
+		}
+		description.Contributes.Inferences[index] = normalized
+	}
+	for index, value := range description.Contributes.Singers {
+		normalized, err := resolvePackagePathRelativeTo(ownerPath, value)
+		if err != nil {
+			return fmt.Errorf("contributes.singers[%d]: %w", index, err)
+		}
+		description.Contributes.Singers[index] = normalized
+	}
+	if err := normalizeMultilingualPackagePath(ownerPath, description.Readme); err != nil {
+		return fmt.Errorf("readme: %w", err)
+	}
+	if err := normalizeMultilingualPackagePath(ownerPath, description.License); err != nil {
+		return fmt.Errorf("license: %w", err)
+	}
+	return nil
+}
+
+func normalizeSingerDescriptionPaths(ownerPath string, description *packageinfo.SingerDescription) error {
+	if description == nil {
+		return nil
+	}
+	if err := normalizeMultilingualPackagePath(ownerPath, description.Avatar); err != nil {
+		return fmt.Errorf("avatar: %w", err)
+	}
+	if err := normalizeMultilingualPackagePath(ownerPath, description.Background); err != nil {
+		return fmt.Errorf("background: %w", err)
+	}
+	for index := range description.DemoAudio {
+		if err := normalizeMultilingualPackagePath(ownerPath, &description.DemoAudio[index].Path); err != nil {
+			return fmt.Errorf("demoAudio[%d].path: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func normalizeMultilingualPackagePath(ownerPath string, text *packageinfo.MultilingualText) error {
+	if text == nil {
+		return nil
+	}
+	normalized, err := resolvePackagePathRelativeTo(ownerPath, text.Default)
+	if err != nil {
+		return fmt.Errorf("[_]: %w", err)
+	}
+	text.Default = normalized
+	for language, value := range text.Texts {
+		normalized, err := resolvePackagePathRelativeTo(ownerPath, value)
+		if err != nil {
+			return fmt.Errorf("[%s]: %w", language, err)
+		}
+		text.Texts[language] = normalized
+	}
+	return nil
+}
+
+func resolvePackagePathRelativeTo(ownerPath string, filePath string) (string, error) {
+	cleanOwner, err := cleanPackagePath(ownerPath)
+	if err != nil {
+		return "", fmt.Errorf("owner path: %w", err)
+	}
+	if filePath == "" {
+		return "", fmt.Errorf("package path cannot be empty")
+	}
+	if strings.HasPrefix(filePath, "/") || strings.HasPrefix(filePath, "\\") {
+		return "", fmt.Errorf("package path %q must be relative", filePath)
+	}
+	if strings.Contains(filePath, "\\") {
+		return "", fmt.Errorf("package path %q must use forward slashes", filePath)
+	}
+	if strings.Contains(path.Clean(filePath), ":") {
+		return "", fmt.Errorf("package path %q must not contain a volume name", filePath)
+	}
+	base := path.Dir(cleanOwner)
+	if base == "." {
+		return cleanPackagePath(filePath)
+	}
+	return cleanPackagePath(path.Join(base, filePath))
 }
 
 func existingSourceFilePath(sourceDir string, filePath string) (string, error) {
