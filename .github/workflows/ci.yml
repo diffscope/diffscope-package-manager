@@ -55,14 +55,12 @@ jobs:
       - name: Build
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          $os = ($env:RUNNER_OS).ToLowerInvariant()
-          $arch = ($env:RUNNER_ARCH).ToLowerInvariant()
           $ext = if ($env:RUNNER_OS -eq 'Windows') { '.exe' } else { '' }
-          go build -v -o "dist/dspm-$os-$arch$ext" ./cmd/dspm
+          go build -v -o "dist/dspm$ext" ./cmd/dspm
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: dspm-${{ runner.os }}-${{ runner.arch }}
+          name: dspm-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
           path: dist/*
           if-no-files-found: error
