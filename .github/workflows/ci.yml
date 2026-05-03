@@ -37,6 +37,7 @@ jobs:
         run: go mod download
 
       - name: Check formatting
+        if: matrix.os == 'ubuntu-latest' # Formatting check is platform-agnostic, so only run it once to save time
         run: |
           $unformatted = gofmt -l .
           if ($unformatted) {
