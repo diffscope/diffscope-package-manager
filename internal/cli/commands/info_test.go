@@ -100,6 +100,52 @@ func TestShowInfoTextForSingerFiltersModulesAndOmitsStatuses(t *testing.T) {
 	}
 }
 
+func TestShowInfoSuggestsInspectForPackageFile(t *testing.T) {
+	packageFile := filepath.Join(t.TempDir(), "sample package.dspk")
+	if err := os.WriteFile(packageFile, []byte("not used"), 0o644); err != nil {
+		t.Fatalf("write package file: %v", err)
+	}
+
+	var output bytes.Buffer
+	err := ShowInfo(packageFile, t.TempDir(), "en", false, &output)
+	if err == nil {
+		t.Fatalf("ShowInfo() error = nil")
+	}
+
+	got := output.String()
+	if !strings.Contains(got, "Suggestion:") ||
+		!strings.Contains(got, "dspm inspect "+packageFile) {
+		t.Fatalf("output = %q", got)
+	}
+}
+
+func TestShowInfoJSONDoesNotSuggestInspectForPackageFile(t *testing.T) {
+	packageFile := filepath.Join(t.TempDir(), "sample package.dspk")
+	if err := os.WriteFile(packageFile, []byte("not used"), 0o644); err != nil {
+		t.Fatalf("write package file: %v", err)
+	}
+
+	var output bytes.Buffer
+	err := ShowInfo(packageFile, t.TempDir(), "en", true, &output)
+	if err == nil {
+		t.Fatalf("ShowInfo() error = nil")
+	}
+
+	got := output.String()
+	if strings.Contains(got, "Suggestion:") ||
+		strings.Contains(got, "dspm inspect") {
+		t.Fatalf("json output should not include suggestion: %q", got)
+	}
+
+	var payload infoOutput
+	if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal output: %v\n%s", err, output.String())
+	}
+	if payload.OK || payload.Error == nil {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestShowInfoJSONReportsAmbiguousVersion(t *testing.T) {
 	packagesDir := makeInfoTestDatabase(t)
 

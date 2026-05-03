@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 
@@ -105,6 +106,7 @@ func NewInfoCmd() *cobra.Command {
 func ShowInfo(target string, packagesDir string, languageCode string, jsonOutput bool, out io.Writer) error {
 	reference, err := packageinfo.ParsePackageReference(target)
 	if err != nil {
+		writeInfoInspectSuggestion(jsonOutput, out, target)
 		return writeInfoError(jsonOutput, out, "SCHEMA_ERROR", err.Error(), nil, err)
 	}
 	if reference.PackageID == "" {
@@ -814,4 +816,15 @@ func writeInfoError(jsonOutput bool, out io.Writer, code string, message string,
 		}
 	}
 	return err
+}
+
+func writeInfoInspectSuggestion(jsonOutput bool, out io.Writer, target string) {
+	if jsonOutput {
+		return
+	}
+	info, err := os.Stat(target)
+	if err != nil || info.IsDir() {
+		return
+	}
+	fmt.Fprintf(out, "Suggestion: If you want to view information about a package file, use `dspm inspect %s` instead.\n", target)
 }

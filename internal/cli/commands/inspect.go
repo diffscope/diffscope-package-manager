@@ -151,11 +151,13 @@ func NewInspectCmd() *cobra.Command {
 func InspectPackageFile(packageFilePath string, packagesDir string, languageCode string, jsonOutput bool, includeHash bool, out io.Writer) error {
 	absolutePackageFilePath, err := filepath.Abs(packageFilePath)
 	if err != nil {
+		writeInspectInfoSuggestion(jsonOutput, out, packageFilePath)
 		return writeInspectError(jsonOutput, out, "IO_ERROR", fmt.Sprintf("resolve package file path: %v", err), err)
 	}
 
 	reader, err := openPackageFileReader(absolutePackageFilePath)
 	if err != nil {
+		writeInspectInfoSuggestion(jsonOutput, out, packageFilePath)
 		return writeInspectError(jsonOutput, out, "IO_ERROR", err.Error(), err)
 	}
 	defer reader.Close()
@@ -557,4 +559,15 @@ func writeInspectError(jsonOutput bool, out io.Writer, code string, message stri
 		}
 	}
 	return err
+}
+
+func writeInspectInfoSuggestion(jsonOutput bool, out io.Writer, packageFilePath string) {
+	if jsonOutput {
+		return
+	}
+	reference, err := packageinfo.ParsePackageReference(packageFilePath)
+	if err != nil || reference.PackageID == "" {
+		return
+	}
+	fmt.Fprintf(out, "Suggestion: If you want to view information about an installed package, use `dspm info %s` instead.\n", reference.String())
 }

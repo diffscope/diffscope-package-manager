@@ -131,6 +131,42 @@ func TestInspectPackageFileJSONReportsInstalledStatus(t *testing.T) {
 	}
 }
 
+func TestInspectPackageFileSuggestsInfoForPackageReference(t *testing.T) {
+	var output bytes.Buffer
+	err := InspectPackageFile("vendor/package@1.0.0.0", t.TempDir(), "en", false, false, &output)
+	if err == nil {
+		t.Fatalf("InspectPackageFile() error = nil")
+	}
+
+	got := output.String()
+	if !strings.Contains(got, "Suggestion:") ||
+		!strings.Contains(got, "dspm info vendor/package@1.0.0.0") {
+		t.Fatalf("output = %q", got)
+	}
+}
+
+func TestInspectPackageFileJSONDoesNotSuggestInfoForPackageReference(t *testing.T) {
+	var output bytes.Buffer
+	err := InspectPackageFile("vendor/package@1.0.0.0", t.TempDir(), "en", true, false, &output)
+	if err == nil {
+		t.Fatalf("InspectPackageFile() error = nil")
+	}
+
+	got := output.String()
+	if strings.Contains(got, "Suggestion:") ||
+		strings.Contains(got, "dspm info") {
+		t.Fatalf("json output should not include suggestion: %q", got)
+	}
+
+	var payload inspectOutput
+	if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal output: %v\n%s", err, output.String())
+	}
+	if payload.OK || payload.Error == nil {
+		t.Fatalf("payload = %#v", payload)
+	}
+}
+
 func TestInspectPackageFileTextIncludesInstalledReferenceNames(t *testing.T) {
 	packagesDir := t.TempDir()
 	db, err := packagedatabase.Open(filepath.Join(packagesDir, "packages.db"))
