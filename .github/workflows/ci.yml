@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Check formatting
+        run: |
+          $unformatted = gofmt -l .
+          if ($unformatted) {
+            Write-Error "The following Go files are not gofmt-formatted:"
+            $unformatted
+            exit 1
+          }
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $os = ($env:RUNNER_OS).ToLowerInvariant()
+          $arch = ($env:RUNNER_ARCH).ToLowerInvariant()
+          $ext = if ($env:RUNNER_OS -eq 'Windows') { '.exe' } else { '' }
+          go build -v -o "dist/dspm-$os-$arch$ext" ./cmd/dspm
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: dspm-${{ runner.os }}-${{ runner.arch }}
+          path: dist/*
+          if-no-files-found: error
