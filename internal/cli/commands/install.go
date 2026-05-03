@@ -179,13 +179,21 @@ func InstallPackages(packageFiles []string, packagesDir string, overwriteExistin
 		return reporter.Error("IO_ERROR", err.Error(), nil, err)
 	}
 
+	promotedDirs, err := promoteOverwrittenPackageDirs(packagesDir, packages)
+	if err != nil {
+		rollbackPromotedPackageDirs(promotedDirs)
+		rollbackInstallDirs(createdDirs)
+		return reporter.Error("IO_ERROR", err.Error(), nil, err)
+	}
+
 	if err := db.Exec("COMMIT").Error; err != nil {
+		rollbackPromotedPackageDirs(promotedDirs)
 		rollbackInstallDirs(createdDirs)
 		return reporter.Error("IO_ERROR", fmt.Sprintf("commit install transaction: %v", err), nil, err)
 	}
 	committed = true
 
-	removeOverwrittenPackageDirs(packagesDir, packages)
+	cleanupPromotedPackageDirBackups(promotedDirs)
 	installed, overwritten, skipped := 0, 0, 0
 	for _, pkg := range packages {
 		switch pkg.Action {
@@ -494,6 +502,15 @@ func ensureInstallDirectoriesAvailable(packagesDir string, packages []installPac
 		}
 		destination := installedPackageDir(packagesDir, pkg.Inspection.ID, pkg.Inspection.Version.String())
 		if _, err := os.Stat(destination); err == nil {
+			if pkg.Action == installActionOverwrite {
+				staging := stagedInstallPackageDir(packagesDir, pkg)
+				if _, err := os.Stat(staging); err == nil {
+					return fmt.Errorf("package staging directory already exists: %s", staging)
+				} else if !os.IsNotExist(err) {
+					return fmt.Errorf("stat package staging directory %s: %w", staging, err)
+				}
+				continue
+			}
 			return fmt.Errorf("package directory already exists: %s", destination)
 		} else if !os.IsNotExist(err) {
 			return fmt.Errorf("stat package directory %s: %w", destination, err)
@@ -512,7 +529,7 @@ func extractInstallPackages(ctx context.Context, packagesDir string, packages []
 		if pkg.Action == installActionSkip {
 			continue
 		}
-		destination := installedPackageDir(packagesDir, pkg.Inspection.ID, pkg.Inspection.Version.String())
+		destination := installExtractDestination(packagesDir, pkg)
 		mu.Lock()
 		createdDirs = append(createdDirs, destination)
 		mu.Unlock()
@@ -535,6 +552,21 @@ func extractInstallPackages(ctx context.Context, packagesDir string, packages []
 		return createdDirs, err
 	}
 	return createdDirs, nil
+}
+
+func installExtractDestination(packagesDir string, pkg installPackage) string {
+	if pkg.Action == installActionOverwrite {
+		return stagedInstallPackageDir(packagesDir, pkg)
+	}
+	return installedPackageDir(packagesDir, pkg.Inspection.ID, pkg.Inspection.Version.String())
+}
+
+func stagedInstallPackageDir(packagesDir string, pkg installPackage) string {
+	hashPrefix := pkg.Hash
+	if len(hashPrefix) > 16 {
+		hashPrefix = hashPrefix[:16]
+	}
+	return filepath.Join(packagesDir, "."+installedPackageDirName(pkg.Inspection.ID, pkg.Inspection.Version.String())+".new-"+hashPrefix)
 }
 
 func writeInstalledPackages(db *gorm.DB, packages []installPackage) error {
@@ -795,13 +827,60 @@ func rollbackInstallDirs(dirs []string) {
 	}
 }
 
-func removeOverwrittenPackageDirs(packagesDir string, packages []installPackage) {
+type promotedPackageDir struct {
+	Final  string
+	Backup string
+}
+
+func promoteOverwrittenPackageDirs(packagesDir string, packages []installPackage) ([]promotedPackageDir, error) {
+	promoted := make([]promotedPackageDir, 0, len(packages))
 	for _, pkg := range packages {
 		if pkg.Action != installActionOverwrite || pkg.Existing == nil || pkg.Existing.Hash == "" || pkg.Existing.Hash == pkg.Hash {
 			continue
 		}
-		_ = os.RemoveAll(installedPackageDir(packagesDir, pkg.Existing.ID, pkg.Existing.Version))
+		final := installedPackageDir(packagesDir, pkg.Existing.ID, pkg.Existing.Version)
+		staging := stagedInstallPackageDir(packagesDir, pkg)
+		backup := backupInstallPackageDir(packagesDir, pkg)
+		if _, err := os.Stat(backup); err == nil {
+			return promoted, fmt.Errorf("package backup directory already exists: %s", backup)
+		} else if !os.IsNotExist(err) {
+			return promoted, fmt.Errorf("stat package backup directory %s: %w", backup, err)
+		}
+		if err := os.Rename(final, backup); err != nil {
+			return promoted, fmt.Errorf("backup existing package directory %s: %w", final, err)
+		}
+		swap := promotedPackageDir{Final: final, Backup: backup}
+		promoted = append(promoted, swap)
+		if err := os.Rename(staging, final); err != nil {
+			if restoreErr := os.Rename(backup, final); restoreErr != nil {
+				return promoted, fmt.Errorf("promote package directory %s: %w; restore backup: %v", final, err, restoreErr)
+			}
+			promoted = promoted[:len(promoted)-1]
+			return promoted, fmt.Errorf("promote package directory %s: %w", final, err)
+		}
 	}
+	return promoted, nil
+}
+
+func rollbackPromotedPackageDirs(promoted []promotedPackageDir) {
+	for i := len(promoted) - 1; i >= 0; i-- {
+		_ = os.RemoveAll(promoted[i].Final)
+		_ = os.Rename(promoted[i].Backup, promoted[i].Final)
+	}
+}
+
+func cleanupPromotedPackageDirBackups(promoted []promotedPackageDir) {
+	for _, dir := range promoted {
+		_ = os.RemoveAll(dir.Backup)
+	}
+}
+
+func backupInstallPackageDir(packagesDir string, pkg installPackage) string {
+	hashPrefix := pkg.Hash
+	if len(hashPrefix) > 16 {
+		hashPrefix = hashPrefix[:16]
+	}
+	return filepath.Join(packagesDir, "."+installedPackageDirName(pkg.Inspection.ID, pkg.Inspection.Version.String())+".old-"+hashPrefix)
 }
 
 func installPackageKey(id string, version string) string {

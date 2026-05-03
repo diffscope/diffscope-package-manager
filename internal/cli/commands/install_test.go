@@ -78,6 +78,42 @@ func TestInstallPackagesDryRunDoesNotExtractOrWriteDatabase(t *testing.T) {
 	}
 }
 
+func TestInstallPackagesOverwriteExistingReplacesDirectory(t *testing.T) {
+	packagesDir := t.TempDir()
+	tempDir := t.TempDir()
+	first := filepath.Join(tempDir, "first.dspk")
+	second := filepath.Join(tempDir, "second.dspk")
+	if err := os.WriteFile(first, makeInstallTestArchive(t, "vendor/simple", "1.0", map[string]string{"old.txt": "old"}), 0o644); err != nil {
+		t.Fatalf("write first package file: %v", err)
+	}
+	if err := os.WriteFile(second, makeInstallTestArchive(t, "vendor/simple", "1.0", map[string]string{"new.txt": "new"}), 0o644); err != nil {
+		t.Fatalf("write second package file: %v", err)
+	}
+
+	var output bytes.Buffer
+	if err := InstallPackages([]string{first}, packagesDir, false, false, false, &output); err != nil {
+		t.Fatalf("InstallPackages(first) error = %v\n%s", err, output.String())
+	}
+	output.Reset()
+	if err := InstallPackages([]string{second}, packagesDir, true, false, false, &output); err != nil {
+		t.Fatalf("InstallPackages(second) error = %v\n%s", err, output.String())
+	}
+
+	packageDir := installedPackageDir(packagesDir, "vendor/simple", "1.0.0.0")
+	if _, err := os.Stat(filepath.Join(packageDir, "new.txt")); err != nil {
+		t.Fatalf("new package file was not installed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(packageDir, "old.txt")); !os.IsNotExist(err) {
+		t.Fatalf("old package file still exists, err = %v", err)
+	}
+	if strings.Contains(output.String(), "package directory already exists") {
+		t.Fatalf("overwrite output reported existing directory:\n%s", output.String())
+	}
+	if !strings.Contains(output.String(), "overwritten") {
+		t.Fatalf("overwrite output missing overwritten result:\n%s", output.String())
+	}
+}
+
 func TestInstallPackagesRejectsDuplicatePackageIdentityInSameCommand(t *testing.T) {
 	packagesDir := t.TempDir()
 	tempDir := t.TempDir()
