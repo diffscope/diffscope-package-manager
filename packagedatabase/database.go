@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"diffscope-package-manager/packagedatabase/model"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase/model"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )

@@ -10,9 +10,9 @@ import (
 	"sort"
 	"strings"
 
-	"diffscope-package-manager/packagedatabase"
-	"diffscope-package-manager/packagedatabase/model"
-	"diffscope-package-manager/packageinfo"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase/model"
+	"github.com/diffscope/diffscope-package-manager/packageinfo"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

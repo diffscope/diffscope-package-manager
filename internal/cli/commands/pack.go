@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"diffscope-package-manager/packagearchive"
+	"github.com/diffscope/diffscope-package-manager/packagearchive"
 
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"

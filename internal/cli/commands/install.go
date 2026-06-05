@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"diffscope-package-manager/packagearchive"
-	"diffscope-package-manager/packagedatabase"
-	"diffscope-package-manager/packagedatabase/model"
-	"diffscope-package-manager/packageinfo"
+	"github.com/diffscope/diffscope-package-manager/packagearchive"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase/model"
+	"github.com/diffscope/diffscope-package-manager/packageinfo"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pterm/pterm"

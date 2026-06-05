@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"diffscope-package-manager/packagedatabase"
-	"diffscope-package-manager/packagedatabase/model"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase/model"
 )
 
 func TestRemovePackagesRemovesPackageDatabaseRowsAndDirectory(t *testing.T) {

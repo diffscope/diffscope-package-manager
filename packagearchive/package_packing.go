@@ -16,7 +16,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"diffscope-package-manager/packageinfo"
+	"github.com/diffscope/diffscope-package-manager/packageinfo"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/pelletier/go-toml/v2"

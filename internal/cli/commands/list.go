@@ -8,10 +8,10 @@ import (
 	"sort"
 	"strings"
 
-	internallanguage "diffscope-package-manager/internal/language"
-	"diffscope-package-manager/packagedatabase"
-	"diffscope-package-manager/packagedatabase/model"
-	"diffscope-package-manager/packageinfo"
+	internallanguage "github.com/diffscope/diffscope-package-manager/internal/language"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase/model"
+	"github.com/diffscope/diffscope-package-manager/packageinfo"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"

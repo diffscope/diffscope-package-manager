@@ -1,4 +1,4 @@
-module diffscope-package-manager
+module github.com/diffscope/diffscope-package-manager
 
 go 1.26.1
 

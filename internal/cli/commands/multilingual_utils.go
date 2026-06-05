@@ -3,8 +3,8 @@ package commands
 import (
 	"sort"
 
-	internallanguage "diffscope-package-manager/internal/language"
-	"diffscope-package-manager/packageinfo"
+	internallanguage "github.com/diffscope/diffscope-package-manager/internal/language"
+	"github.com/diffscope/diffscope-package-manager/packageinfo"
 )
 
 func addMultilingualName(name *packageinfo.MultilingualText, language string, value string) {

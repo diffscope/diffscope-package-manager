@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"diffscope-package-manager/packageinfo"
+	"github.com/diffscope/diffscope-package-manager/packageinfo"
 
 	"github.com/go-playground/validator/v10"
 )

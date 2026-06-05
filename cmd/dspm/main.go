@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"diffscope-package-manager/internal/cli"
+	"github.com/diffscope/diffscope-package-manager/internal/cli"
 )
 
 func main() {

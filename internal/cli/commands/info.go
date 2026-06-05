@@ -9,11 +9,11 @@ import (
 	"path/filepath"
 	"sort"
 
-	internallanguage "diffscope-package-manager/internal/language"
-	"diffscope-package-manager/packagearchive"
-	"diffscope-package-manager/packagedatabase"
-	"diffscope-package-manager/packagedatabase/model"
-	"diffscope-package-manager/packageinfo"
+	internallanguage "github.com/diffscope/diffscope-package-manager/internal/language"
+	"github.com/diffscope/diffscope-package-manager/packagearchive"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase/model"
+	"github.com/diffscope/diffscope-package-manager/packageinfo"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

@@ -1,10 +1,10 @@
 package cli
 
 import (
-	"diffscope-package-manager/internal/cli/commands"
-	"diffscope-package-manager/internal/config"
 	"encoding/json"
 	"fmt"
+	"github.com/diffscope/diffscope-package-manager/internal/cli/commands"
+	"github.com/diffscope/diffscope-package-manager/internal/config"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

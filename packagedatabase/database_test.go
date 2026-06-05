@@ -3,7 +3,7 @@ package packagedatabase
 import (
 	"testing"
 
-	"diffscope-package-manager/packagedatabase/model"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase/model"
 )
 
 func TestOpenMigratesDatabase(t *testing.T) {

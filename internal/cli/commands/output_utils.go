@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"diffscope-package-manager/packageinfo"
+	"github.com/diffscope/diffscope-package-manager/packageinfo"
 
 	"github.com/charmbracelet/lipgloss"
 )

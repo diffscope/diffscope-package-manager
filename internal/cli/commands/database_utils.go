@@ -1,8 +1,8 @@
 package commands
 
 import (
-	"diffscope-package-manager/packagedatabase/model"
-	"diffscope-package-manager/packageinfo"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase/model"
+	"github.com/diffscope/diffscope-package-manager/packageinfo"
 
 	"gorm.io/gorm"
 )
