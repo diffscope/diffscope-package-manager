@@ -172,7 +172,7 @@ def content_hash(files):
 
 ## Metadata Ownership
 
-The database is an installation-time management and listing index. `desc.json` retains complete package metadata and opaque entries. Singer declarations retain complete singer metadata. The database excludes declaration bodies, declaration paths, expansion state, copyright, readme, URL, singer media fields, and import or export relationships. It also excludes resolved dependency edges, source archive paths, remote repository records, and installed file inventories.
+The database is an installation-time management and listing index. `desc.json` retains complete package metadata and opaque entries. Singer declarations retain complete singer metadata. The database excludes declaration bodies, declaration paths, expansion state, license paths, readme paths, URL, singer media fields, and import or export relationships. It also excludes resolved dependency edges, source archive paths, remote repository records, and installed file inventories.
 
 Installed package contents are immutable under the management protocol. Replacement uses installation with `--overwrite-existing` if the same identity has different content. External file edits can produce stale indexed metadata, dependencies, and recorded hashes. `list` does not rescan declarations. `info --installed` reopens package and singer metadata without reindexing or recomputing the installed hash. A registered identity mismatch is rejected. Opaque declaration files are not parsed by information queries.
 

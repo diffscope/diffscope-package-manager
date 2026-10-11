@@ -43,6 +43,11 @@
       "additionalProperties": { "type": "string" },
       "description": "The object retains all language keys and explicit empty strings. The key '_' identifies the default value."
     },
+    "filePaths": {
+      "$ref": "#/$defs/text",
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "description": "Each localized value is a nonempty, fully qualified, lexically normalized host path in the package read context. Each reference must identify a regular file inside the package."
+    },
     "diagnosticArray": {
       "type": "array",
       "items": { "type": "string" }
@@ -159,8 +164,8 @@
         "name": { "$ref": "#/$defs/text" },
         "description": { "$ref": "#/$defs/text" },
         "vendor": { "$ref": "#/$defs/text" },
-        "copyright": { "$ref": "#/$defs/text" },
-        "readme": { "$ref": "#/$defs/text", "description": "Each localized value is a fully qualified, lexically normalized host path in the package read context. Each reference must identify a regular file inside the package." },
+        "license": { "$ref": "#/$defs/filePaths" },
+        "readme": { "$ref": "#/$defs/filePaths" },
         "url": { "type": "string", "description": "The value is the website string after variable expansion. An explicit empty string is retained. The field is omitted if absent." },
         "manifest": { "type": "object", "description": "The object contains expanded desc.json with vars removed. Arbitrary package fields and JSON types are retained. Source formatting and comments are excluded." },
         "diagnostics": { "$ref": "#/$defs/diagnosticArray" }

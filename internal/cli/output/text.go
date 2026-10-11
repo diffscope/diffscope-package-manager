@@ -141,11 +141,8 @@ func (r *Renderer) info(v packagemanager.Info) {
 	r.field("  ", "CompatVersion", p.CompatVersion.String())
 	r.field("  ", "FormatVersion", p.FormatVersion.String())
 	r.field("  ", "RuntimeLevel", fmt.Sprint(p.RuntimeLevel))
-	r.textField("  ", "Copyright", p.Copyright)
+	r.textField("  ", "License", p.License)
 	r.textField("  ", "Readme", p.Readme)
-	if text, ok := packageinfo.TextValue(p.Manifest["license"]); ok {
-		r.textField("  ", "License", text)
-	}
 	if p.URL != nil {
 		r.field("  ", "URL", *p.URL)
 	}

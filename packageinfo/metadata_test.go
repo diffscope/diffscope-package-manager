@@ -10,8 +10,8 @@ import (
 
 func TestCompletePackageMetadata(t *testing.T) {
 	root := t.TempDir()
-	desc := `{"$version":"1.0","runtimeLevel":1,"id":"vendor/voice","version":"2.3","compatVersion":"1","vars":[{"name":"title","value":"Voice"},{"name":"assets","value":"${root}/docs"}],"name":"${title}","vendor":{"_":"Vendor","ZH-cn":"提供者"},"copyright":{"_":"","zh-CN":"版权 ${title}","ZH-cn":"Different key"},"description":"Description ${title}","readme":{"_":"docs\\..\\readme.txt","zh-CN":"${assets}/../说明.txt"},"url":"https://example.test/${title}","dependencies":[{"id":"vendor/base","version":"1.2"}],"contributions":{"vendor.data":[{"id":"main","custom":{"file":"../../unchecked"}}]},"extension":{"text":"${title}","enabled":true,"value":null}}`
-	p, err := Load(manifestFS(desc, map[string]string{"readme.txt": "Readme", "说明.txt": "说明"}), root)
+	desc := `{"$version":"1.0","runtimeLevel":1,"id":"vendor/voice","version":"2.3","compatVersion":"1","vars":[{"name":"title","value":"Voice"},{"name":"assets","value":"${root}/docs"}],"name":"${title}","vendor":{"_":"Vendor","ZH-cn":"提供者"},"license":{"_":"docs\\..\\LICENSE.txt","zh-CN":"${assets}/../许可证.txt","ZH-cn":"alternate.txt"},"description":"Description ${title}","readme":{"_":"docs\\..\\readme.txt","zh-CN":"${assets}/../说明.txt"},"url":"https://example.test/${title}","dependencies":[{"id":"vendor/base","version":"1.2"}],"contributions":{"vendor.data":[{"id":"main","custom":{"file":"../../unchecked"}}]},"extension":{"text":"${title}","enabled":true,"value":null}}`
+	p, err := Load(manifestFS(desc, map[string]string{"readme.txt": "Readme", "说明.txt": "说明", "LICENSE.txt": "License", "许可证.txt": "许可证", "alternate.txt": "Alternate license"}), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestCompletePackageMetadata(t *testing.T) {
 	}{
 		{"name", p.Name, Text{"_": "Voice"}},
 		{"vendor", p.Vendor, Text{"_": "Vendor", "ZH-cn": "提供者"}},
-		{"copyright", p.Copyright, Text{"_": "", "zh-CN": "版权 Voice", "ZH-cn": "Different key"}},
+		{"license", p.License, Text{"_": filepath.Join(root, "LICENSE.txt"), "zh-CN": filepath.Join(root, "许可证.txt"), "ZH-cn": filepath.Join(root, "alternate.txt")}},
 		{"description", p.Description, Text{"_": "Description Voice"}},
 		{"readme", p.Readme, Text{"_": filepath.Join(root, "readme.txt"), "zh-CN": filepath.Join(root, "说明.txt")}},
 	} {
@@ -46,6 +46,10 @@ func TestCompletePackageMetadata(t *testing.T) {
 	if readme["_"] != `docs\..\readme.txt` || readme["zh-CN"] != root+"/docs/../说明.txt" {
 		t.Fatal("resolved readme overwrote expanded declaration", readme)
 	}
+	license := p.Manifest["license"].(map[string]any)
+	if license["_"] != `docs\..\LICENSE.txt` || license["zh-CN"] != root+"/docs/../许可证.txt" {
+		t.Fatal("License path resolution modified the expanded declaration.", license)
+	}
 	if p.Manifest["extension"].(map[string]any)["text"] != "Voice" {
 		t.Fatal("unknown extension lost", p.Manifest)
 	}
@@ -60,7 +64,7 @@ func TestCompletePackageMetadata(t *testing.T) {
 	if err := json.Unmarshal(encoded, &fields); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"id", "version", "formatVersion", "runtimeLevel", "compatVersion", "dependencies", "contributions", "name", "vendor", "copyright", "description", "readme", "url", "manifest"} {
+	for _, field := range []string{"id", "version", "formatVersion", "runtimeLevel", "compatVersion", "dependencies", "contributions", "name", "vendor", "license", "description", "readme", "url", "manifest"} {
 		if _, exists := fields[field]; !exists {
 			t.Errorf("standard metadata missing from serialized package: %s", field)
 		}
@@ -68,15 +72,20 @@ func TestCompletePackageMetadata(t *testing.T) {
 }
 
 func TestOptionalPackageMetadataPreservesPresence(t *testing.T) {
+	emptyURL := ""
 	for _, test := range []struct {
-		name string
-		more string
+		name        string
+		more        string
+		wantLicense string
+		wantURL     *string
 	}{
-		{"absent", ""},
-		{"empty", `,"copyright":"","url":""`},
+		{"absent", "", "", nil},
+		{"empty-url", `,"url":""`, "", &emptyURL},
+		{"license-string", `,"license":"LICENSE.txt"`, "LICENSE.txt", nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			p, err := Load(manifestFS(`{"$version":"1","runtimeLevel":1,"id":"voice","version":"1"`+test.more+`}`, nil), t.TempDir())
+			root := t.TempDir()
+			p, err := Load(manifestFS(`{"$version":"1","runtimeLevel":1,"id":"voice","version":"1"`+test.more+`}`, map[string]string{"LICENSE.txt": "License"}), root)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -88,15 +97,21 @@ func TestOptionalPackageMetadataPreservesPresence(t *testing.T) {
 			if err := json.Unmarshal(encoded, &fields); err != nil {
 				t.Fatal(err)
 			}
-			if p.Readme != nil {
-				t.Fatal("absent readme invented", p.Readme)
+			if p.Readme != nil || fields["readme"] != nil {
+				t.Fatal("Absent readme metadata was emitted.", p.Readme)
 			}
-			if test.name == "absent" {
-				if p.Copyright != nil || p.URL != nil || fields["copyright"] != nil || fields["url"] != nil || fields["readme"] != nil {
-					t.Fatalf("optional metadata invented: %s", encoded)
-				}
-			} else if p.Copyright["_"] != "" || p.URL == nil || *p.URL != "" || string(fields["copyright"]) != `{"_":""}` || string(fields["url"]) != `""` {
-				t.Fatalf("explicit empty metadata lost: %s", encoded)
+			if !reflect.DeepEqual(p.URL, test.wantURL) || (fields["url"] != nil) != (test.wantURL != nil) {
+				t.Fatalf("URL presence was not preserved: %s", encoded)
+			}
+			if test.wantURL != nil && string(fields["url"]) != `""` {
+				t.Fatalf("The explicit empty URL was not preserved: %s", encoded)
+			}
+			var wantLicense Text
+			if test.wantLicense != "" {
+				wantLicense = Text{"_": filepath.Join(root, test.wantLicense)}
+			}
+			if !reflect.DeepEqual(p.License, wantLicense) || (fields["license"] != nil) != (wantLicense != nil) {
+				t.Fatalf("License presence or path resolution is invalid: %s", encoded)
 			}
 		})
 	}
@@ -107,9 +122,16 @@ func TestStandardPackageMetadataRejectsInvalidValues(t *testing.T) {
 		field string
 		value string
 	}{
-		{"copyright", `null`},
-		{"copyright", `{"en":"Missing default"}`},
-		{"copyright", `{"_":"Copyright","en":5}`},
+		{"license", `null`},
+		{"license", `""`},
+		{"license", `{"en":"LICENSE.txt"}`},
+		{"license", `{"_":"LICENSE.txt","en":5}`},
+		{"license", `"missing.txt"`},
+		{"license", `"../outside.txt"`},
+		{"license", `"docs"`},
+		{"license", `{"_":"LICENSE.txt","zh-CN":""}`},
+		{"license", `{"_":"LICENSE.txt","zh-CN":"../outside.txt"}`},
+		{"license", `{"_":"LICENSE.txt","zh-CN":"missing.txt"}`},
 		{"url", `false`},
 		{"url", `null`},
 		{"readme", `{"_":"readme.txt","zh-CN":"../outside.txt"}`},
@@ -117,7 +139,7 @@ func TestStandardPackageMetadataRejectsInvalidValues(t *testing.T) {
 	} {
 		t.Run(test.field+"/"+test.value, func(t *testing.T) {
 			desc := `{"$version":"1","runtimeLevel":1,"id":"voice","version":"1","` + test.field + `":` + test.value + `}`
-			_, err := Load(manifestFS(desc, map[string]string{"readme.txt": "Readme"}), t.TempDir())
+			_, err := Load(manifestFS(desc, map[string]string{"readme.txt": "Readme", "LICENSE.txt": "License", "docs/note.txt": "Note"}), t.TempDir())
 			if err == nil || !strings.Contains(err.Error(), test.field) {
 				t.Fatalf("expected %s validation failure, got %v", test.field, err)
 			}

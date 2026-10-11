@@ -76,7 +76,7 @@ type PackageManifest struct {
 	Name          Text           `json:"name,omitempty"`
 	Description   Text           `json:"description,omitempty"`
 	Vendor        Text           `json:"vendor,omitempty"`
-	Copyright     Text           `json:"copyright,omitempty"`
+	License       Text           `json:"license,omitempty"`
 	Readme        Text           `json:"readme,omitempty"`
 	URL           *string        `json:"url,omitempty"`
 	Manifest      map[string]any `json:"manifest"`
@@ -207,7 +207,7 @@ func Load(files fs.FS, root string) (PackageManifest, error) {
 	if p.CompatVersion.Compare(p.Version) > 0 {
 		return p, fmt.Errorf("compatVersion exceeds version")
 	}
-	for _, field := range []string{"name", "vendor", "description", "copyright", "readme"} {
+	for _, field := range []string{"name", "vendor", "description", "license", "readme"} {
 		if v, exists := m[field]; exists {
 			t, ok := TextValue(v)
 			if !ok {
@@ -220,17 +220,19 @@ func Load(files fs.FS, root string) (PackageManifest, error) {
 				p.Vendor = t
 			case "description":
 				p.Description = t
-			case "copyright":
-				p.Copyright = t
-			case "readme":
+			case "license", "readme":
 				for language, value := range t {
 					name, err := directFile(files, root, value)
 					if err != nil {
-						return p, fmt.Errorf("readme: %w", err)
+						return p, fmt.Errorf("%s: %w", field, err)
 					}
 					t[language] = filepath.Join(root, filepath.FromSlash(name))
 				}
-				p.Readme = t
+				if field == "license" {
+					p.License = t
+				} else {
+					p.Readme = t
+				}
 			}
 		}
 	}

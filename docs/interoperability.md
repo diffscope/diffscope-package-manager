@@ -97,6 +97,7 @@ The root version response contains no query envelope. The executable version is 
 | Category, interface, or variant ID | The string contains contribution ID segments separated by `.`. Category IDs are extensible and case-sensitive. |
 | Package version | The string contains four decimal integer components, such as `"1.2.0.0"`. Components have arbitrary precision and no leading zeros except the value `0`. |
 | `Text` | The object maps language keys to strings and includes the default key `_`. Extracted shorthand strings become `{"_":"value"}`. Empty strings and all language keys are retained. |
+| `FilePaths` | The object has the `Text` representation. Every value is a nonempty, fully qualified, lexically normalized host path to a regular file inside the package. |
 | `Dependency` | The object contains a package `id` and normalized target `version`. The target does not identify a resolved provider version. |
 | Content hash | The string contains 128 lowercase hexadecimal characters representing the [content tree digest](installed-database.md#content-hash). |
 
@@ -135,22 +136,24 @@ A singer contribution has category ID exactly equal to `singer`. An opaque contr
 
 ### Package Manifest
 
-`PackageManifest` contains required `id`, `version`, `formatVersion`, `runtimeLevel`, `compatVersion`, `dependencies`, `contributions`, and `manifest`. Optional fields are `name`, `description`, `vendor`, `copyright`, `readme`, `url`, and `diagnostics`. `dependencies` and `contributions` are arrays, including `[]` if empty. `diagnostics`, if present, is a nonempty string array.
+`PackageManifest` contains required `id`, `version`, `formatVersion`, `runtimeLevel`, `compatVersion`, `dependencies`, `contributions`, and `manifest`. Optional fields are `name`, `description`, `vendor`, `license`, `readme`, `url`, and `diagnostics`. `dependencies` and `contributions` are arrays, including `[]` if empty. `diagnostics`, if present, is a nonempty string array.
 
 | Declaration field | Extracted representation |
 | --- | --- |
 | `$version` | `formatVersion` contains the normalized format version. The supported value is `"1.0.0.0"`. |
 | `runtimeLevel` | `runtimeLevel` contains the supported integer value `1`. |
 | `id`, `version`, `compatVersion` | The extracted fields retain their names. Versions are normalized. An absent `compatVersion` defaults to `version`. |
-| `name`, `description`, `vendor`, `copyright` | Each extracted field contains a complete `Text` object. |
-| `readme` | The extracted `Text` object contains fully qualified, lexically normalized host paths. Every localized path must reference a regular file within the package. |
+| `name`, `description`, `vendor` | Each extracted field contains a complete `Text` object. |
+| `license`, `readme` | Each extracted field contains a complete `FilePaths` object. All language keys are retained. |
 | `url` | The extracted field contains the expanded string. An absent field is omitted. An explicit empty string remains `""`. URI syntax and network availability are not checked. |
 | `dependencies`, `contributions` | The extracted arrays contain declared dependencies and full contribution objects. |
 | `vars` | Variable definitions are consumed during expansion and omitted from the expanded manifest. |
 
-`manifest` contains expanded `desc.json` with arbitrary fields and JSON types retained. It does not preserve source formatting, comments, or byte order marks. Typed normalization does not modify the retained declaration representation. For example, `manifest.version` can contain `"1.0"` while the typed `version` contains `"1.0.0.0"`. `manifest.readme` contains expanded declaration paths while typed `readme` contains resolved host paths.
+`license` and `readme` use identical path rules. A declaration accepts a shorthand string such as `"license": "LICENSE.txt"` or a language map such as `"license": {"_": "LICENSE.txt", "zh-CN": "docs/许可证.txt"}`. A language map requires the default key `_`. Variable expansion precedes path resolution. Every localized path is checked, regardless of the selected output language. Null values, empty paths, missing files, directories, and references outside the package are rejected. An absent field remains omitted.
 
-The database stores package name, description, and vendor for installed package summaries. Copyright, readme, URL, and arbitrary extension fields remain available through full information responses and are absent from installed package summaries.
+`manifest` contains expanded `desc.json` with arbitrary fields and JSON types retained. It does not preserve source formatting, comments, or byte order marks. Typed normalization does not modify the retained declaration representation. For example, `manifest.version` can contain `"1.0"` while the typed `version` contains `"1.0.0.0"`. `manifest.license` and `manifest.readme` contain expanded declaration paths while typed `license` and `readme` contain resolved host paths.
+
+The database stores package name, description, and vendor for installed package summaries. License paths, readme paths, URL, and arbitrary extension fields remain available through full information responses and are absent from installed package summaries.
 
 ### Contributions
 
@@ -178,7 +181,7 @@ Full singer `level` uses a JSON number. Indexed summaries and the database use d
 
 An installed contribution selector filters only `package.contributions`. `package.manifest` and `installation.contributions` retain the complete package declaration and index.
 
-`${root}`, `${dir}`, and typed readme paths depend on the read context. Installed information uses the installed package directory. Pack planning uses the source directory. Archive information uses the archive parent directory as a logical root without extracting files there. A singer declaration has `${dir}` set to its containing directory. Extracted singer resource strings are not independently resolved or normalized. Expanded absolute paths are specific to the applicable read context.
+`${root}`, `${dir}`, and typed license and readme paths depend on the read context. Installed information uses the installed package directory. Pack planning uses the source directory. Archive information uses the archive parent directory as a logical root without extracting files there. A singer declaration has `${dir}` set to its containing directory. Extracted singer resource strings are not independently resolved or normalized. Expanded absolute paths are specific to the applicable read context.
 
 ## Mutation Envelopes
 

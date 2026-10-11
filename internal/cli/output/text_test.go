@@ -58,18 +58,22 @@ func TestTextInfoUsesCompleteTypedMetadata(t *testing.T) {
 			r := styledRenderer(&out, io.Discard)
 			r.Language = "*"
 			p := packageinfo.PackageManifest{
-				Copyright: packageinfo.Text{"_": "", "en": "Copyright Voice", "zh-CN": "版权"},
-				Readme:    packageinfo.Text{"_": "/voice/readme.txt", "zh-CN": "/voice/说明.txt"},
-				URL:       &url,
+				License:  packageinfo.Text{"_": "/voice/LICENSE.txt", "en": "/voice/LICENSE.en.txt", "zh-CN": "/voice/许可证.txt"},
+				Readme:   packageinfo.Text{"_": "/voice/readme.txt", "zh-CN": "/voice/说明.txt"},
+				URL:      &url,
+				Manifest: map[string]any{"license": "LICENSE.txt"},
 			}
 			if err := r.Query(packagemanager.Info{Package: p}, nil); err != nil {
 				t.Fatal(err)
 			}
 			plain := ansi.Strip(out.String())
-			for _, text := range []string{"  Copyright[_]: \n", "  Copyright[en]: Copyright Voice\n", "  Copyright[zh-CN]: 版权\n", "  Readme[_]: /voice/readme.txt\n", "  Readme[zh-CN]: /voice/说明.txt\n", "  URL: " + url + "\n"} {
+			for _, text := range []string{"  License[_]: /voice/LICENSE.txt\n", "  License[en]: /voice/LICENSE.en.txt\n", "  License[zh-CN]: /voice/许可证.txt\n", "  Readme[_]: /voice/readme.txt\n", "  Readme[zh-CN]: /voice/说明.txt\n", "  URL: " + url + "\n"} {
 				if !strings.Contains(plain, text) {
 					t.Fatalf("typed metadata missing from info: %q in:\n%s", text, plain)
 				}
+			}
+			if strings.Count(plain, "License[_]:") != 1 {
+				t.Fatal("The license field was rendered more than once.", plain)
 			}
 		})
 	}
