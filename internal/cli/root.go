@@ -1,104 +1,74 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/diffscope/diffscope-package-manager/internal/cli/commands"
+	"github.com/diffscope/diffscope-package-manager/internal/cli/output"
 	"github.com/diffscope/diffscope-package-manager/internal/config"
-
+	"github.com/diffscope/diffscope-package-manager/internal/language"
+	"github.com/diffscope/diffscope-package-manager/internal/packagemanager"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+	"os"
+	"os/signal"
+	"strconv"
 )
 
-var (
-	version = "0.0.0+dev"
-)
+var version = "0.0.0+dev"
 
-type versionJsonOutput struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-}
-
-var (
-	rootCmd = &cobra.Command{
-		Use:           "dspm",
-		Short:         "DiffScope package manager",
-		SilenceErrors: true,
-		SilenceUsage:  true,
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			return initConfig(cmd)
-		},
-		RunE: func(cmd *cobra.Command, arg []string) error {
-			showVersion, err := cmd.Flags().GetBool("version")
-			if err != nil {
-				return err
-			}
-			if showVersion {
-				if loadedConfig.JSON {
-					output := versionJsonOutput{
-						Name:    cmd.Use,
-						Version: version,
-					}
-					jsonBytes, err := json.Marshal(output)
-					if err != nil {
-						return err
-					}
-					fmt.Fprintln(cmd.OutOrStdout(), string(jsonBytes))
-				} else {
-					fmt.Fprintf(cmd.OutOrStdout(), "%s version %s\n", cmd.Use, version)
-				}
-				return nil
-			}
-			return cmd.Help()
-		},
-		CompletionOptions: cobra.CompletionOptions{
-			DisableDefaultCmd: true,
-		},
+func NewRootCommand() *cobra.Command {
+	o := &commands.Options{PackagesDir: config.DefaultPackagesDir(), Language: language.CurrentCode()}
+	if v := os.Getenv("DSPM_PACKAGES_DIR"); v != "" {
+		o.PackagesDir = v
 	}
-
-	loadedConfig config.Config
-)
-
-// Execute runs the CLI entrypoint.
+	if v := os.Getenv("DSPM_JSON"); v != "" {
+		o.JSON, _ = strconv.ParseBool(v)
+	}
+	var showVersion bool
+	root := &cobra.Command{Use: "dspm", Short: "DiffScope package manager", SilenceErrors: true, SilenceUsage: true}
+	root.Flags().BoolVarP(&showVersion, "version", "v", false, "show version")
+	root.RunE = func(cmd *cobra.Command, args []string) error {
+		if showVersion {
+			if o.JSON {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"name": "dspm", "version": version})
+			}
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), "dspm version", version)
+			return err
+		}
+		return cmd.Help()
+	}
+	root.CompletionOptions.DisableDefaultCmd = true
+	root.PersistentFlags().StringVar(&o.PackagesDir, "packages-dir", o.PackagesDir, "package installation root")
+	root.PersistentFlags().BoolVar(&o.JSON, "json", o.JSON, "emit structured JSON")
+	root.PersistentFlags().StringVar(&o.Language, "language", o.Language, "language preference for text output; '*' shows all languages (JSON retains all languages)")
+	commands.Add(root, o)
+	return root
+}
+func ExecuteCommand(root *cobra.Command) error {
+	cmd, err := root.ExecuteC()
+	if err == nil {
+		return nil
+	}
+	var reported *output.ReportedError
+	if errors.As(err, &reported) {
+		return err
+	}
+	if cmd == nil {
+		cmd = root
+	}
+	structured, _ := root.PersistentFlags().GetBool("json")
+	name := cmd.Name()
+	mutation := name == "install" || name == "remove" || name == "pack"
+	r := &output.Renderer{Command: name, JSON: structured, Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(), Mutation: mutation}
+	r.EnableTerminal()
+	return r.Finish(&packagemanager.Error{Code: "INVALID_ARGUMENT", Message: err.Error(), Cause: err})
+}
 func Execute() error {
-	return rootCmd.Execute()
-}
-
-// Config returns the loaded global config.
-func Config() config.Config {
-	return loadedConfig
-}
-
-func init() {
-	rootCmd.PersistentFlags().Bool("json", false, "output JSON")
-	rootCmd.PersistentFlags().String("packages-dir", "", "packages installation directory")
-	rootCmd.Flags().BoolP("version", "v", false, "version for "+rootCmd.Use)
-
-	rootCmd.AddCommand(
-		commands.NewInstallCmd(),
-		commands.NewRemoveCmd(),
-		commands.NewListCmd(),
-		commands.NewInfoCmd(),
-		commands.NewInspectCmd(),
-		commands.NewPackCmd(),
-	)
-}
-
-func initConfig(cmd *cobra.Command) error {
-	viper.SetDefault("packages_dir", config.DefaultPackagesDir())
-	viper.SetDefault("json", false)
-	viper.SetEnvPrefix("DSPM")
-	viper.AutomaticEnv()
-
-	if err := viper.BindEnv("packages_dir", "DSPM_PACKAGES_DIR"); err != nil {
-		return err
-	}
-	if err := viper.BindPFlag("packages_dir", cmd.Flags().Lookup("packages-dir")); err != nil {
-		return err
-	}
-	if err := viper.BindPFlag("json", cmd.Flags().Lookup("json")); err != nil {
-		return err
-	}
-
-	return viper.Unmarshal(&loadedConfig)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	root := NewRootCommand()
+	root.SetContext(ctx)
+	return ExecuteCommand(root)
 }

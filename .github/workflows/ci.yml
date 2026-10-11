@@ -11,6 +11,8 @@ jobs:
   ci:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      CGO_ENABLED: '1'
     strategy:
       fail-fast: false
       matrix:
@@ -36,6 +38,13 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Configure MinGW
+        if: runner.os == 'Windows'
+        run: |
+          $compiler = Get-Command gcc -ErrorAction Stop
+          "CC=$($compiler.Source)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $compiler.Source --version
+
       - name: Check formatting
         if: matrix.os == 'ubuntu-latest' # Formatting check is platform-agnostic, so only run it once to save time
         run: |
@@ -51,6 +60,9 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+      - name: Race test
+        run: go test -race ./...
 
       - name: Build
         run: |
