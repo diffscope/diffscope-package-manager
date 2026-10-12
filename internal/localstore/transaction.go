@@ -45,14 +45,14 @@ func (s *Session) Commit(ctx context.Context, remove []packagedatabase.Record, p
 	byID := map[string]*move{}
 	for _, r := range remove {
 		if r.Directory != DirectoryName(r.Identity) {
-			return fmt.Errorf("invalid package directory")
+			return fmt.Errorf("The package directory is invalid.")
 		}
 		m := move{Identity: r.Identity, Directory: r.Directory, Old: true}
 		byID[r.String()] = &m
 	}
 	for _, p := range put {
 		if p.Record.Directory != DirectoryName(p.Record.Identity) || !validStage(p.Stage) {
-			return fmt.Errorf("invalid staged package")
+			return fmt.Errorf("The staged package is invalid.")
 		}
 		m := byID[p.Record.String()]
 		if m == nil {
@@ -75,10 +75,10 @@ func (s *Session) Commit(ctx context.Context, remove []packagedatabase.Record, p
 				return err
 			}
 			if !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
-				return fmt.Errorf("installed package is not an ordinary directory")
+				return fmt.Errorf("The installed package is not an ordinary directory.")
 			}
 		} else if err == nil {
-			return fmt.Errorf("unregistered directory conflicts with package %s", k)
+			return fmt.Errorf("An unregistered directory conflicts with package %s.", k)
 		} else if !os.IsNotExist(err) {
 			return err
 		}
@@ -92,7 +92,7 @@ func (s *Session) Commit(ctx context.Context, remove []packagedatabase.Record, p
 	}
 	rollback := func(primary error) error {
 		if err := s.rollback(j); err != nil {
-			return errors.Join(primary, fmt.Errorf("rollback failed; recovery required: %w", err))
+			return errors.Join(primary, fmt.Errorf("Rollback failed and requires recovery: %w", err))
 		}
 		return primary
 	}
@@ -136,22 +136,23 @@ func (s *Session) Commit(ctx context.Context, remove []packagedatabase.Record, p
 		records = append(records, p.Record)
 	}
 	if err := s.db.Apply(j.ID, identities, records); err != nil {
-		// A COMMIT I/O error can have an uncertain outcome. Never guess that it rolled back.
+		// A COMMIT I/O error can have an uncertain outcome. Recovery requires
+		// commit-marker verification through a fresh connection.
 		committed, checkErr := s.db.ConfirmCommitted(j.ID)
 		if checkErr != nil {
-			return errors.Join(err, fmt.Errorf("cannot determine commit state: %w", checkErr))
+			return errors.Join(err, fmt.Errorf("The commit state cannot be determined: %w", checkErr))
 		}
 		if !committed {
 			return rollback(err)
 		}
-		s.Diagnostics = append(s.Diagnostics, "database committed despite reported error: "+err.Error())
+		s.Diagnostics = append(s.Diagnostics, "The database commit succeeded despite the reported error: "+err.Error())
 	}
 	if err := s.checkpoint("committed"); err != nil {
-		s.Diagnostics = append(s.Diagnostics, "committed; cleanup pending: "+err.Error())
+		s.Diagnostics = append(s.Diagnostics, "The transaction committed. Cleanup remains pending: "+err.Error())
 		return nil
 	}
 	if err := s.cleanup(j); err != nil {
-		s.Diagnostics = append(s.Diagnostics, "committed; cleanup pending: "+err.Error())
+		s.Diagnostics = append(s.Diagnostics, "The transaction committed. Cleanup remains pending: "+err.Error())
 	}
 	return nil
 }

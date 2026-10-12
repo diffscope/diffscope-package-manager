@@ -11,9 +11,12 @@ import (
 	"github.com/muesli/termenv"
 )
 
-// Progress preserves a bounded NDJSON update rate while always delivering
-// boundaries, file changes and final byte counts. Query output remains one JSON value.
+// Renders mutation progress with bounded NDJSON updates.
+// Boundary events, file changes, and final byte counts are retained. Queries return one JSON value.
 func (r *Renderer) Progress(p packagemanager.Progress) {
+	if !r.JSON && r.ProgressMode == "none" {
+		return
+	}
 	now := time.Now()
 	previous := r.lastProgress
 	if r.JSON {
@@ -61,7 +64,7 @@ func (r *Renderer) Progress(p packagemanager.Progress) {
 }
 
 func (r *Renderer) ensureLiveProgress() {
-	if r.JSON || r.progressInitialized {
+	if r.JSON || r.progressInitialized || (r.ProgressMode != "" && r.ProgressMode != "auto") {
 		return
 	}
 	r.progressInitialized = true
@@ -73,11 +76,17 @@ func (r *Renderer) ensureLiveProgress() {
 			}
 			return width
 		}, r.styles())
+		r.live.height = func() int {
+			_, height, err := term.GetSize(file.Fd())
+			if err != nil {
+				return 16
+			}
+			return max(4, height-3)
+		}
 	}
 }
 
-// Close also runs during panic unwinding. No animation or hidden cursor survives
-// an error, cancellation, or command return.
+// Restores terminal state and stops animation, including during panic unwinding.
 func (r *Renderer) Close() {
 	r.stopProgress()
 	for _, restore := range r.restoreTerminal {
@@ -86,8 +95,8 @@ func (r *Renderer) Close() {
 	r.restoreTerminal = nil
 }
 
-// EnableTerminal enables ANSI processing on native Windows consoles and saves
-// their modes for restoration. It is a no-op for JSON and redirected streams.
+// Enables ANSI processing on native Windows consoles and saves modes for restoration.
+// JSON and redirected streams require no console changes.
 func (r *Renderer) EnableTerminal() {
 	if r.JSON {
 		return

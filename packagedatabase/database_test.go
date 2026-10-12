@@ -41,7 +41,7 @@ func TestSchemaAndMinimalIndex(t *testing.T) {
 	if ok, err := store.Committed("tx"); err != nil || !ok {
 		t.Fatal(ok, err)
 	}
-	// Verify FK configuration on newly-created pool connections, not just the first one.
+	// Every pool connection requires foreign key enforcement.
 	sqlDB, _ := store.db.DB()
 	sqlDB.SetMaxIdleConns(0)
 	if err := store.db.Exec("INSERT INTO dependencies VALUES ('missing','1.0.0.0','dep','1.0.0.0')").Error; err == nil {
@@ -60,8 +60,8 @@ func TestSchemaAndMinimalIndex(t *testing.T) {
 func TestOpaqueIndexAndConstraints(t *testing.T) {
 	p := packageinfo.PackageManifest{Identity: packageinfo.Identity{ID: "voice", Version: v("1")}, Contributions: []packageinfo.Contribution{{
 		Category: "inference", ID: "note", Entry: map[string]any{"name": "EntryName"},
-		// Even a caller-supplied declaration must not cross the category boundary.
-		SingerDeclaration: &packageinfo.SingerDeclaration{Name: packageinfo.Text{"_": "Hidden"}, ModuleMetadata: &packageinfo.ModuleMetadata{Interface: "hidden.Contract", Level: "1", Variant: "hidden"}},
+		// Caller-supplied declarations must satisfy the opaque category constraints.
+		SingerDeclaration: &packageinfo.SingerDeclaration{Name: packageinfo.Text{"_": "Hidden"}, ModuleMetadata: &packageinfo.ModuleMetadata{Interface: "hidden.Contract", Level: 1, Variant: "hidden"}},
 	}}}
 	r := Index(p, "hash", "dir", 123)
 	if !reflect.DeepEqual(r.Contributions, []ContributionIndex{{Category: "inference", ID: "note"}}) {
@@ -98,8 +98,8 @@ func TestOpaqueIndexAndConstraints(t *testing.T) {
 	}
 }
 
-// Execute the documented scripts on one connection, stopping and rolling back
-// on the first error, including failures before the final COMMIT.
+// Executes documented scripts on one connection and returns the first error.
+// A failed statement triggers rollback before execution returns.
 func executeScript(db *sql.DB, script string) error {
 	ctx := context.Background()
 	conn, err := db.Conn(ctx)
@@ -125,85 +125,41 @@ func executeScript(db *sql.DB, script string) error {
 	return nil
 }
 
-func TestDocumentedOpaqueIndexMigration(t *testing.T) {
+func TestDocumentedSchema(t *testing.T) {
 	ddl, err := os.ReadFile("../docs/sql/installed-packages.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	migration, err := os.ReadFile("../docs/sql/migrate-240-to-241.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Schema 240 had the same columns, without opaque-category constraints.
-	var oldDDL []string
-	for _, line := range strings.Split(string(ddl), "\n") {
-		if !strings.HasPrefix(strings.TrimSpace(line), "CHECK") {
-			oldDDL = append(oldDDL, strings.ReplaceAll(line, "241", "240"))
-		}
-	}
 	filename := filepath.Join(t.TempDir(), "index.db")
-	db, err := gorm.Open(sqlite.Open(filename+"?_foreign_keys=on"), &gorm.Config{})
+	raw, err := sql.Open("sqlite3", filename)
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := db.DB()
-	if err != nil {
+	if err = executeScript(raw, string(ddl)); err != nil {
 		t.Fatal(err)
 	}
-	defer raw.Close()
-	if err := executeScript(raw, strings.Join(oldDDL, "\n")); err != nil {
-		t.Fatal(err)
-	}
-	old := &Store{db: db}
-	record := Record{Identity: packageinfo.Identity{ID: "voice", Version: v("2")}, CompatVersion: v("1"), Hash: "hash", Directory: "dir", InstalledAt: 123,
-		Name: packageinfo.Text{"_": "", "zh-CN": "Voice"}, Dependencies: []packageinfo.Dependency{{ID: "dependency", Version: v("1")}},
-		Contributions: []ContributionIndex{
-			{Category: "inference", ID: "note", Interface: "Note", Level: "1", Variant: "old", Name: packageinfo.Text{"_": "OldName", "zh-CN": "OldTranslation"}},
-			{Category: "singer", ID: "main", Interface: "Singer", Level: "123456789012345678901234567890", Variant: "v", Name: packageinfo.Text{"_": "", "en": "Singer"}},
-			{Category: "vendor.custom", ID: "inline", Name: packageinfo.Text{"_": "inline"}},
-		}}
-	if err := old.Apply("pending-commit", nil, []Record{record}); err != nil {
-		t.Fatal(err)
-	}
-	wantRecords, err := old.Records()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := executeScript(raw, string(migration)); err != nil {
-		t.Fatal(err)
-	}
+	raw.Close()
 	s, err := Open(filename, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	got, err := s.Records()
-	wantRecords[0].Contributions[0] = ContributionIndex{Category: "inference", ID: "note"}
-	wantRecords[0].Contributions[2] = ContributionIndex{Category: "vendor.custom", ID: "inline"}
-	if err != nil || !reflect.DeepEqual(got, wantRecords) {
-		actual, _ := json.Marshal(got)
-		want, _ := json.Marshal(wantRecords)
-		t.Fatalf("migration changed preserved data: got %s, want %s, error %v", actual, want, err)
+	record := Record{Identity: packageinfo.Identity{ID: "voice", Version: v("2")}, CompatVersion: v("1"), Hash: "hash", Directory: "dir", InstalledAt: 123,
+		Contributions: []ContributionIndex{{Category: "singer", ID: "main", Interface: "Singer", Level: 2, Variant: "v"}, {Category: "vendor.custom", ID: "inline"}}}
+	if err = s.Apply("install", nil, []Record{record}); err != nil {
+		t.Fatal(err)
 	}
-	if committed, err := s.Committed("pending-commit"); err != nil || !committed {
-		t.Fatal("commit marker changed", committed, err)
+	var storage string
+	if err = s.db.Raw("SELECT typeof(level) FROM contributions WHERE category='singer'").Scan(&storage).Error; err != nil || storage != "integer" {
+		t.Fatal(storage, err)
 	}
-	var violations []map[string]any
-	if err := s.db.Raw("PRAGMA foreign_key_check").Scan(&violations).Error; err != nil || len(violations) != 0 {
-		t.Fatal(violations, err)
+	records, err := s.Records()
+	if err != nil || len(records) != 1 || records[0].Contributions[0].Level != 2 || records[0].Contributions[1].Level != 0 {
+		t.Fatal(records, err)
 	}
-	if err := s.db.Exec("UPDATE contributions SET interface='Hidden' WHERE category='inference'").Error; err == nil {
-		t.Fatal("migration did not add constraint")
-	}
-	if err := s.db.Exec("INSERT INTO contribution_names VALUES ('voice','2.0.0.0','inference','note','_','Hidden')").Error; err == nil {
-		t.Fatal("migration did not restrict names")
-	}
-	if err := executeScript(raw, string(migration)); err == nil {
-		t.Fatal("migration accepted wrong source version")
-	}
-	after, err := s.Records()
-	if err != nil || !reflect.DeepEqual(after, got) {
-		t.Fatal("failed repeat migration mutated database", after, err)
+	encoded, err := json.Marshal(records[0].Contributions)
+	if err != nil || !strings.Contains(string(encoded), `"level":2`) || strings.Count(string(encoded), `"level"`) != 1 {
+		t.Fatal(string(encoded), err)
 	}
 }
 func TestRejectOldDatabaseWithoutMigration(t *testing.T) {

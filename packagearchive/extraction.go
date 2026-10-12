@@ -2,7 +2,6 @@ package packagearchive
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -41,14 +40,7 @@ func (a *Archive) ExtractWithProgress(ctx context.Context, dest string, callback
 	progress := newProgress(a.byteSize(), len(names), callback)
 	for _, name := range names {
 		progress.file(name)
-		if err := validateName(name, false, a.limits.PathBytes); err != nil {
-			return err
-		}
 		target := filepath.FromSlash(name)
-		relative, err := filepath.Rel(dest, filepath.Join(dest, target))
-		if err != nil || !filepath.IsLocal(relative) {
-			return fmt.Errorf("extraction escapes staging")
-		}
 		if err := root.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}

@@ -1,10 +1,10 @@
 # DiffScope Package Manager
 
-`dspm` manages DiffScope resource packages using Spec 2.4 metadata. This stage implements local package management. Packages contain resources; the manager does not load interpreters or execute package content.
+`dspm` manages DiffScope resource packages with Spec 2.4 metadata and OVCPR v1 repositories. Packages contain resources. Installation does not execute package contents or load inference engines.
 
-## Build and test
+## Build requirements
 
-Go 1.26.1 or newer and a C compiler are required for SQLite. On Windows, use MinGW:
+The executable requires Go 1.26.1 or later, CGO, and a platform C compiler for SQLite. Windows builds require a compatible MinGW compiler.
 
 ```powershell
 $env:CGO_ENABLED = '1'
@@ -15,56 +15,96 @@ go test -race ./...
 go vet ./...
 ```
 
-Linux and macOS builds also require CGO and a platform C compiler. CI runs tests, race checks and builds on all three platforms.
+Linux and macOS builds require `CGO_ENABLED=1` and a C compiler. CI includes tests, race detection, static analysis, and builds on Windows, Linux, and macOS. The shared `packageinfo`, `packagearchive`, `packagedependency`, and `packagerepository` libraries do not require CGO.
 
-## Commands
+## Release builds
 
-```text
-dspm pack ./voice --output ./voice.dspk
+Release builds require an explicit executable version and a reviewed source revision. The version is independent of package format and database schema versions. The following PowerShell command requires `DSPM_RELEASE_VERSION` to contain the release identifier.
+
+```powershell
+go build -trimpath -ldflags "-X github.com/diffscope/diffscope-package-manager/internal/cli.version=$env:DSPM_RELEASE_VERSION" -o dspm.exe ./cmd/dspm
+go version -m ./dspm.exe
+./dspm.exe --json --version
+```
+
+Published binaries require recorded platform, architecture, source revision, and file checksums. Release validation includes the tests and static analysis specified above.
+
+## Package operations
+
+```sh
+dspm info vendor/voice
+dspm install vendor/voice=1.0
 dspm install --file ./voice.dspk ./base.dspk
-dspm install --file ./voice.dspk --overwrite-existing
+dspm install --file-only ./voice.dspk ./base.dspk
 dspm info --file ./voice.dspk
 dspm info --installed vendor/voice=1.0
 dspm info --installed vendor/voice=1.0:singer/main
 dspm list
 dspm remove vendor/voice=1.0
 dspm remove base=1.0 --cascade
+dspm pack ./voice --output ./voice.dspk
 ```
 
-`install` and `info` select the unimplemented remote source if their local source flag is absent. These branches terminate with `panic("not implemented")`, including in JSON mode. `--file` selects local archives. `info --installed` selects registered package metadata. Source selection is explicit and does not depend on filenames.
+`install` and `info` use remote sources unless a local source flag is present. `install --file` reads explicit archives and obtains missing dependencies remotely. `install --file-only` uses explicit archives and installed dependencies without configuration, registry, or download cache access. Adjacent archives are not scanned. `info --file` reads an archive. `info --installed` reads registered metadata.
 
-Package selectors use `package=version`; contribution selectors use `package=version:category/id`. Omitting the version is allowed only when one version of the package is installed. Identity matching is case-sensitive. Different versions coexist. Dependencies select the highest installed version satisfying `compatVersion <= target <= version`, without backtracking. All dependencies must be installed already or supplied in the same batch.
+Package selectors use `id=version`. Contribution selectors use `id=version:category/contribution-id`. Versions contain four nonnegative integer components. An abbreviated version such as `1.2` normalizes to `1.2.0.0`. Identity comparison is case-sensitive. Multiple versions of a package can coexist.
 
-Installation skips identical contents. Replacing different contents with the same identity requires `--overwrite-existing`, intended for local development. Removing a dependency is allowed when another compatible version still satisfies its dependents; otherwise use `--cascade` to remove dependents that become invalid. Packages outside the local database are ignored. Old databases are rejected without migration.
+An unversioned remote selector selects the highest numeric version in the first matching source. An unversioned installed selector requires exactly one installed version. Dependency acquisition prefers explicit archives, installed providers, and configured sources, in that order. Resolution selects the highest compatible provider satisfying `compatVersion <= target <= version`, without backtracking. The final installed graph requires compatible providers and no cycles.
 
-Global options include `--packages-dir`, `--json` and `--language`. `DSPM_PACKAGES_DIR` and `DSPM_JSON` provide environment defaults. Text language selection preserves explicit empty values; JSON retains every language key. Queries emit one JSON object; mutations emit newline-delimited JSON events. Diagnostics use stderr in text mode and structured fields in JSON mode. `list --columns` accepts `id,version,name,vendor,description,installed-at,hash,directory,compat-version`.
+Installation skips identities with identical recorded content. Different content under the same identity requires `--overwrite-existing`. Removal requires a compatible remaining provider for every dependent package. `--cascade` includes dependents that would otherwise become invalid. Packages absent from the database are unmanaged.
 
-See the [interoperability documentation](docs/interoperability.md) for JSON/NDJSON payloads, the output JSON Schema, and the installed SQLite database reference and SQL DDL.
+`install`, `remove`, and `pack` support `--dry-run`. Remote installation dry runs validate metadata without downloading archives. Local installation dry runs validate explicit archives. Queries and dry runs may recover an interrupted transaction in an existing store. Empty queries and dry runs do not initialize a database.
 
-Interactive text output uses inspection spinners and progress bars with a package or file title above a colored block bar and a percentage on the right. Batch installation displays a title and progress bar for each package requiring installation. JSON mutation events include byte and phase progress for verification and commit. Queries return a single JSON object. Ctrl+C cancels the operation and removes uncommitted staging. `ls` aliases `list`, `--column` aliases `--columns`, and `--language '*'` displays all translations in text mode.
+## Repositories and cache
 
-`install`, `remove` and `pack` support `--dry-run`. This previews the requested operation without applying it. Opening an existing store can first recover an earlier interrupted transaction, including during a query or dry-run; that maintenance is reported. Empty queries and dry-runs do not initialize a database. There is no separate recovery command.
+```sh
+dspm --registry https://example.org/packages/ info vendor/voice
+dspm --registry https://example.org/packages/ install vendor/voice=1
+dspm cache dir
+dspm cache info
+dspm cache clean --partial --dry-run
+dspm repo create --file ./voice.dspk --repository ./community-repository --download-url https://example.org/releases/1/voice.dspk
+```
 
-`pack` accepts `desc.json` and preserves original file bytes. TOML/YAML conversion and media checks have been removed. Existing output requires `--force`; output is validated before publication. ZIPs reject links, special files, unsafe or colliding paths, excessive resources and CRC errors. Empty directories are preserved. Defaults are 100,000 entries including implicit parent directories, 64 GiB per file, 256 GiB total, 4096 UTF-8 bytes per path, and a compression ratio of 1000. The archive library exposes configurable limits.
+Repository selection verifies the SHA-512 links between root indexes, versions indexes, and manifests. Downloaded archives require the manifest file digest, archive integrity, package metadata, and publication projection to match before staging. Download recovery uses persistent checkpoints and validated HTTP Range responses. Exact-content replicas may provide an archive if the authority source is unavailable.
 
-## Metadata and architecture
+`cache dir` returns the configured cache path. `cache info` reports managed file counts, byte counts, and activity. `cache clean` removes managed data and preserves lock files and the identity marker. `repo create` generates an immutable manifest and documentation assets from an exact archive without network access. Repository acceptance and deployment require separate OVCPR validation.
 
-Only the `singer` category has its declaration file parsed. All other categories, including `inference`, retain their expanded `desc.json` entry and expose category, ID and any checked direct file path. Their declaration files are not parsed, their variables are not expanded, and declaration fields are not extracted or indexed. Their category and ID remain indexed and usable in contribution selectors. No name or declaration expansion state is fabricated for them. Singer contributions additionally expose common module fields, avatar, background and demo audio when extractable. Contribution-specific fields and import/export relationships are not validated. String `path` values directly in `desc.json` and package license and readme paths must reference regular files inside the package. Resource paths within contribution declarations are neither checked nor opened. A non-string `path` in an opaque category is retained as category-owned data.
+The [remote operations reference](docs/remote-operations.md) specifies configuration, network policy, cache lifecycle, download recovery, and submission generation.
 
-The package manifest and singer declarations require UTF-8 JSON without a byte order mark or comments. Duplicate keys and trailing commas are rejected. Unknown fields are preserved. Variable expansion follows declaration order and scope and never rescans substituted text. Parsing limits include 16 MiB per parsed declaration, 128 levels, one million value nodes, and a 64 MiB cumulative metadata budget. Singer contribution entries require a declaration `path`. Successful singer metadata extraction includes the required `interface`, `level`, and `variant` fields. Failed required field extraction produces `metadataError`, retains the declaration, and omits all three common fields without rejecting installation. Optional field extraction failures produce diagnostics. Unreadable or invalid singer JSON declarations are rejected. These JSON requirements do not apply to opaque contribution declaration files. All package files still participate in archive integrity checks, content hashing and extraction limits.
+## Output and configuration
 
-If singer declaration variable expansion fails, its raw declaration is retained with `expanded: false` and `metadataError`. Derived fields are unavailable, and the failure appears in diagnostics. Successful expansion produces `expanded: true`. Opaque contributions expose their expanded `desc.json` entry only through `entry`. They have no declaration `manifest`, `expanded` state, `metadataError`, or derived declaration metadata.
+`--packages-dir` overrides the installation root. `DSPM_PACKAGES_DIR` supplies its environment default. `--json` enables structured output, with `DSPM_JSON` as the environment default. Queries return one JSON object. Mutations return newline-delimited JSON events. Text diagnostics use stderr. JSON diagnostics use structured fields.
 
-- `packageinfo`: shared metadata loading, identifiers, versions, JSON and variables.
-- `packagearchive`: bounded archive/directory access, hashing, extraction and packing.
-- `packagedatabase`: minimal SQLite indexes, explicit schema and private ORM models.
-- `internal/dependency`: dependency selection and graph validation without I/O.
-- `internal/localstore`: store sessions, persistent process locks, staging, journals, commit and recovery.
-- `internal/packagemanager`: local use cases and results, independent of CLI presentation.
-- `internal/cli`: command/source selection and text/JSON rendering.
+`--language` controls text translation selection. Explicit empty translations remain empty. JSON preserves every language key. `--language '*'` displays all translations in text mode. `list --columns` accepts `id,version,name,vendor,description,installed-at,hash,directory,compat-version`. `--column` aliases `--columns`. `ls` aliases `list`. `rm` and `uninstall` alias `remove`.
 
-Installed package directories use identity digests; `.dspm` holds the index, lock and transaction records. Reads coordinate with writers. Mutations retain old directories until the index and a commit marker commit together. Startup recovery restores uncommitted changes or completes committed cleanup. These guarantees cover cooperating dspm processes and process interruption; they do not provide cross-package atomic visibility to runtimes that ignore the lock or guarantee atomicity across power loss.
+Interactive output includes phase progress and a parallel download table. Downloads with known totals display progress bars and percentages. Downloads with unknown totals display animated indicators and received byte counts. `--progress plain` disables terminal control sequences. `--progress none` suppresses progress rendering. JSON output retains progress events. Ctrl+C cancels active operations. Store recovery removes uncommitted staging on subsequent access.
 
-A read that triggers recovery retains the exclusive lock until that command finishes. Missing recovery evidence or an indeterminate commit state stops the operation and preserves the remaining evidence. Committed cleanup failures are warnings and are retried on the next access.
+The [CLI interoperability reference](docs/interoperability.md) specifies payloads, events, progress, diagnostics, and the [output JSON Schema](docs/schemas/cli-output.schema.json). The [installed database reference](docs/installed-database.md) specifies storage, locking, recovery, and SQL integration.
 
-Future remote discovery and archive acquisition can use the same neutral dependency candidates, metadata loader and installation transaction. CPR publishing/validation and remote operations are outside this stage.
+## Package validation
+
+`pack` accepts directories containing `desc.json` and preserves file bytes and empty directories. Existing output requires `--force`. Archive publication follows validation. Links, special files, unsafe paths, path collisions, CRC failures, and resource limit violations are rejected. Default limits are 100,000 entries including implicit directories, 64 GiB per file, 256 GiB total, 4096 UTF-8 bytes per path, and a compression ratio of 1000. The archive library exposes configurable limits.
+
+Package manifests and singer declarations require UTF-8 JSON without a byte order mark or comments. Duplicate keys and trailing commas are rejected. Unknown declaration fields are preserved. Variable expansion follows declaration order and scope. Substitution results are not rescanned. Default parsing limits are 16 MiB per declaration, 128 nesting levels, one million value nodes, and 64 MiB of cumulative metadata.
+
+Only the exact contribution category `singer` receives declaration parsing. Singer entries require a declaration `path`. Successful common metadata extraction includes `interface`, `level`, and `variant`. Failed required extraction retains the declaration, records `metadataError`, and omits those three fields. Failed variable expansion retains the raw declaration with `expanded: false`. Invalid or unreadable singer JSON rejects the package. Optional extraction failures produce diagnostics. Singer media references, import and export relationships, and interpreter configuration are not validated.
+
+Other categories are opaque. Their expanded `desc.json` entries, category IDs, contribution IDs, and checked direct file paths remain available. Opaque declaration files are not parsed or expanded. A non-string opaque entry `path` remains category-owned data. String paths directly in contribution entries and package license and readme paths must reference regular package files. All package files participate in integrity checks and content hashing.
+
+## Architecture
+
+| Package | Responsibility |
+| --- | --- |
+| `packageinfo` | Metadata loading includes identifiers, versions, JSON parsing, and variables. |
+| `packagearchive` | Archive access, hashing, extraction, and packing enforce resource limits. |
+| `packagedependency` | Provider selection and graph validation operate without I/O. |
+| `packagerepository` | OVCPR v1 decoding, publication projection, and comparison operate without network or database access. |
+| `packagedatabase` | The SQLite index stores installation records and metadata summaries. |
+| `internal/localstore` | Store sessions coordinate locks, staging, journals, commit, and recovery. |
+| `internal/packagemanager` | Package operations and results are independent of CLI presentation. |
+| `internal/cli` | Commands select sources and render text or JSON output. |
+
+Installed directories use identity digests. `.dspm` contains the database, lock, and transaction records. Filesystem changes and index updates use a journal and a database commit marker. Recovery restores uncommitted changes or completes committed cleanup. Missing evidence or an indeterminate commit state rejects the operation and preserves recovery evidence. Cleanup failures produce diagnostics and are retried on subsequent access.
+
+The transaction protocol coordinates cooperating processes and process interruption. It does not provide cross-package atomic visibility to runtimes that ignore the store lock or guarantee atomicity across power loss.

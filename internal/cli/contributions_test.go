@@ -51,7 +51,7 @@ func TestOpaqueContributionsThroughLocalWorkflow(t *testing.T) {
 		}
 		for _, c := range response.Data.Package.Contributions {
 			if c.Category == "singer" {
-				if c.SingerDeclaration == nil || c.ModuleMetadata == nil || c.Name["_"] != "VisibleSinger" || c.Interface != "example.Singer" || c.Level != "2" || c.Variant != "v" || c.Singer == nil || c.Singer.Avatar["_"] != "../../missing.png" || c.MetadataError != "" {
+				if c.SingerDeclaration == nil || c.ModuleMetadata == nil || c.Name["_"] != "VisibleSinger" || c.Interface != "example.Singer" || c.Level != 2 || c.Variant != "v" || c.Singer == nil || c.Singer.Avatar["_"] != "../../missing.png" || c.MetadataError != "" {
 					t.Fatal("singer metadata lost", c)
 				}
 				continue
@@ -90,7 +90,7 @@ func TestOpaqueContributionsThroughLocalWorkflow(t *testing.T) {
 		t.Fatal("installed contribution index lost", listing, err)
 	}
 	for _, c := range listing.Data[0].Contributions {
-		if c.Category != "singer" && (c.Interface != "" || c.Level != "" || c.Variant != "" || len(c.Name) != 0) {
+		if c.Category != "singer" && (c.Interface != "" || c.Level != 0 || c.Variant != "" || len(c.Name) != 0) {
 			t.Fatal("opaque declaration indexed", c)
 		}
 	}

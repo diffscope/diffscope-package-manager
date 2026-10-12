@@ -40,7 +40,7 @@ func Plan(ctx context.Context, source, output string, limits Limits) (PackPlan, 
 		return p, err
 	}
 	if !sourceInfo.IsDir() || sourceInfo.Mode()&os.ModeSymlink != 0 {
-		return p, fmt.Errorf("source must be an ordinary directory")
+		return p, fmt.Errorf("The source must be an ordinary directory.")
 	}
 	outputInfo, _ := os.Stat(p.Output)
 	d, err := OpenDirectory(p.Source)
@@ -72,7 +72,7 @@ func Plan(ctx context.Context, source, output string, limits Limits) (PackPlan, 
 		}
 		name := filepath.ToSlash(relative)
 		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("source contains link %q", name)
+			return fmt.Errorf("The source contains a symbolic link %q.", name)
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -82,7 +82,7 @@ func Plan(ctx context.Context, source, output string, limits Limits) (PackPlan, 
 			return nil
 		}
 		if !info.IsDir() && !info.Mode().IsRegular() {
-			return fmt.Errorf("source contains special file %q", name)
+			return fmt.Errorf("The source contains a special file %q.", name)
 		}
 		checkName := name
 		if info.IsDir() {
@@ -93,18 +93,18 @@ func Plan(ctx context.Context, source, output string, limits Limits) (PackPlan, 
 		}
 		key := strings.ToLower(name)
 		if prior, ok := seen[key]; ok && prior != name {
-			return fmt.Errorf("case collision in source")
+			return fmt.Errorf("The source contains a case collision.")
 		}
 		seen[key] = name
 		if len(seen) > limits.Entries {
-			return fmt.Errorf("too many source entries")
+			return fmt.Errorf("The source contains too many entries.")
 		}
 		if info.IsDir() {
 			p.Directories = append(p.Directories, name)
 			return nil
 		}
 		if info.Size() > limits.FileBytes || info.Size() > limits.TotalBytes-p.Bytes {
-			return fmt.Errorf("source size limit exceeded")
+			return fmt.Errorf("The source exceeds its size limit.")
 		}
 		p.Bytes += info.Size()
 		p.Files = append(p.Files, name)
@@ -118,7 +118,8 @@ func Pack(ctx context.Context, p PackPlan, force bool, limits Limits) (string, e
 	return PackWithProgress(ctx, p, force, limits, nil, nil)
 }
 
-// PackWithProgress reports writing and subsequent archive verification separately.
+// Returns the content-tree digest after archive publication or an error for failed packing or verification.
+// Progress distinguishes archive writing from subsequent verification.
 func PackWithProgress(ctx context.Context, p PackPlan, force bool, limits Limits, packing, verification ProgressFunc) (string, error) {
 	temp, err := os.CreateTemp(filepath.Dir(p.Output), ".dspm-pack-*.tmp")
 	if err != nil {
@@ -157,7 +158,7 @@ func PackWithProgress(ctx context.Context, p PackPlan, force bool, limits Limits
 			f.Close()
 			z.Close()
 			temp.Close()
-			return "", fmt.Errorf("source changed: %s", name)
+			return "", fmt.Errorf("The source file %s changed during packing.", name)
 		}
 		w, err := z.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store})
 		if err == nil {
@@ -176,7 +177,7 @@ func PackWithProgress(ctx context.Context, p PackPlan, force bool, limits Limits
 	if total != p.Bytes {
 		z.Close()
 		temp.Close()
-		return "", fmt.Errorf("source size changed while packing")
+		return "", fmt.Errorf("The source size changed during packing.")
 	}
 	if err = z.Close(); err != nil {
 		temp.Close()

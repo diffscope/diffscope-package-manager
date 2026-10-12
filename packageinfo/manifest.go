@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -94,7 +93,7 @@ func readObject(files fs.FS, name string) (map[string]any, error) {
 		return nil, err
 	}
 	if !st.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular file", name)
+		return nil, fmt.Errorf("The path %s is not a regular file.", name)
 	}
 	b, err := io.ReadAll(io.LimitReader(f, MaxJSONBytes+1))
 	if err != nil {
@@ -109,59 +108,26 @@ func readObject(files fs.FS, name string) (map[string]any, error) {
 func versionField(m map[string]any, k string) (Version, error) {
 	s, ok := m[k].(string)
 	if !ok {
-		return Version{}, fmt.Errorf("%s must be a version string", k)
+		return Version{}, fmt.Errorf("The field %s must be a version string.", k)
 	}
 	return ParseVersion(s)
 }
-func positiveInteger(v any) (json.Number, bool) {
+func positiveInteger(v any) (int64, bool) {
 	n, ok := v.(json.Number)
 	if !ok {
-		return "", false
+		return 0, false
 	}
-	s := n.String()
-	if s == "" || s[0] == '-' {
-		return "", false
-	}
-	mantissa, exp, hasExp := strings.Cut(strings.ToLower(s), "e")
-	var exponent int64
-	if hasExp {
-		var err error
-		exponent, err = strconv.ParseInt(exp, 10, 64)
-		if err != nil || exponent > MaxJSONBytes || exponent < -MaxJSONBytes {
-			return "", false
-		}
-	}
-	whole, fraction, _ := strings.Cut(mantissa, ".")
-	digits := strings.TrimLeft(whole+fraction, "0")
-	if digits == "" {
-		return "", false
-	}
-	scale := exponent - int64(len(fraction))
-	if scale < 0 {
-		count := -scale
-		if count >= int64(len(digits)) {
-			return "", false
-		}
-		suffix := digits[len(digits)-int(count):]
-		if strings.Trim(suffix, "0") != "" {
-			return "", false
-		}
-		digits = digits[:len(digits)-int(count)]
-	} else if scale > 0 {
-		if int64(len(digits))+scale > MaxJSONBytes {
-			return "", false
-		}
-		digits += strings.Repeat("0", int(scale))
-	}
-	return json.Number(digits), true
+	i, err := n.Int64()
+	return i, err == nil && i > 0
 }
 
-// Load reads the complete package. root is a fully-qualified lexical root for variables.
+// Reads package metadata and returns the manifest or an error for invalid declarations or references.
+// The root argument specifies a fully qualified lexical root for variable expansion.
 func Load(files fs.FS, root string) (PackageManifest, error) {
 	var p PackageManifest
 	root = filepath.Clean(root)
 	if !filepath.IsAbs(root) || !utf8.ValidString(root) || strings.ContainsRune(root, 0) || strings.Contains(root, "\\") && filepath.Separator != '\\' {
-		return p, fmt.Errorf("package root must be representable and fully qualified")
+		return p, fmt.Errorf("The package root must be a representable, fully qualified path.")
 	}
 	raw, err := readObject(files, "desc.json")
 	if err != nil {
@@ -173,11 +139,11 @@ func Load(files fs.FS, root string) (PackageManifest, error) {
 	}
 	one, _ := ParseVersion("1")
 	if p.FormatVersion.Compare(one) != 0 {
-		return p, fmt.Errorf("unsupported manifest format")
+		return p, fmt.Errorf("The manifest format is unsupported.")
 	}
 	level, ok := positiveInteger(raw["runtimeLevel"])
-	if !ok || level.String() != "1" {
-		return p, fmt.Errorf("unsupported or invalid runtimeLevel")
+	if !ok || level != 1 {
+		return p, fmt.Errorf("The runtimeLevel value is unsupported or invalid.")
 	}
 	p.RuntimeLevel = 1
 	m, scope, err := expandDocument(raw, map[string]string{"root": root, "dir": root})
@@ -187,11 +153,11 @@ func Load(files fs.FS, root string) (PackageManifest, error) {
 	p.Manifest = m
 	metadataRemaining := int64(MaxPackageMetadataBytes) - metadataCost(m)
 	if metadataRemaining < 0 {
-		return p, fmt.Errorf("package metadata resource limit exceeded")
+		return p, fmt.Errorf("The package metadata exceeds a resource limit.")
 	}
 	p.ID, ok = m["id"].(string)
 	if !ok || !IsValidPackageIdentifier(p.ID) {
-		return p, fmt.Errorf("invalid package ID")
+		return p, fmt.Errorf("The package ID is invalid.")
 	}
 	p.Version, err = versionField(m, "version")
 	if err != nil {
@@ -205,13 +171,13 @@ func Load(files fs.FS, root string) (PackageManifest, error) {
 		}
 	}
 	if p.CompatVersion.Compare(p.Version) > 0 {
-		return p, fmt.Errorf("compatVersion exceeds version")
+		return p, fmt.Errorf("The compatVersion value exceeds the package version.")
 	}
 	for _, field := range []string{"name", "vendor", "description", "license", "readme"} {
 		if v, exists := m[field]; exists {
 			t, ok := TextValue(v)
 			if !ok {
-				return p, fmt.Errorf("invalid multilingual %s", field)
+				return p, fmt.Errorf("The multilingual field %s is invalid.", field)
 			}
 			switch field {
 			case "name":
@@ -239,7 +205,7 @@ func Load(files fs.FS, root string) (PackageManifest, error) {
 	if v, ok := m["url"]; ok {
 		url, ok := v.(string)
 		if !ok {
-			return p, fmt.Errorf("url must be a string")
+			return p, fmt.Errorf("The url field must be a string.")
 		}
 		p.URL = &url
 	}
@@ -248,17 +214,17 @@ func Load(files fs.FS, root string) (PackageManifest, error) {
 	if v, exists := m["dependencies"]; exists {
 		a, ok := v.([]any)
 		if !ok {
-			return p, fmt.Errorf("dependencies must be an array")
+			return p, fmt.Errorf("The dependencies field must be an array.")
 		}
 		seen := map[string]bool{}
 		for _, v := range a {
 			d, ok := v.(map[string]any)
 			if !ok {
-				return p, fmt.Errorf("dependency must be an object")
+				return p, fmt.Errorf("Each dependency must be an object.")
 			}
 			id, ok := d["id"].(string)
 			if !ok || !IsValidPackageIdentifier(id) || seen[id] || id == p.ID {
-				return p, fmt.Errorf("invalid, duplicate or self dependency %q", id)
+				return p, fmt.Errorf("The dependency %q is invalid, duplicate, or self-referential.", id)
 			}
 			seen[id] = true
 			version, err := versionField(d, "version")
@@ -271,7 +237,7 @@ func Load(files fs.FS, root string) (PackageManifest, error) {
 	if value, exists := m["contributions"]; exists {
 		categories, ok := value.(map[string]any)
 		if !ok {
-			return p, fmt.Errorf("contributions must be an object")
+			return p, fmt.Errorf("The contributions field must be an object.")
 		}
 		keys := make([]string, 0, len(categories))
 		for c := range categories {
@@ -280,28 +246,28 @@ func Load(files fs.FS, root string) (PackageManifest, error) {
 		sort.Strings(keys)
 		for _, category := range keys {
 			if !ValidDottedID(category) {
-				return p, fmt.Errorf("invalid category %q", category)
+				return p, fmt.Errorf("The category %q is invalid.", category)
 			}
 			a, ok := categories[category].([]any)
 			if !ok {
-				return p, fmt.Errorf("category %s must be an array", category)
+				return p, fmt.Errorf("The contribution category %s must contain an array.", category)
 			}
 			seen := map[string]bool{}
 			for _, v := range a {
 				entry, ok := v.(map[string]any)
 				if !ok {
-					return p, fmt.Errorf("contribution must be an object")
+					return p, fmt.Errorf("Each contribution must be an object.")
 				}
 				id, ok := entry["id"].(string)
 				if !ok || !IsValidGenericIdentifier(id) || seen[id] {
-					return p, fmt.Errorf("invalid or duplicate contribution ID %q", id)
+					return p, fmt.Errorf("The contribution ID %q is invalid or duplicate.", id)
 				}
 				seen[id] = true
 				c := Contribution{Category: category, ID: id, Entry: entry}
 				if v, exists := entry["path"]; exists {
 					value, ok := v.(string)
 					if !ok && category == "singer" {
-						return p, fmt.Errorf("contribution path must be a string")
+						return p, fmt.Errorf("The contribution path must be a string.")
 					}
 					if ok {
 						c.Path, err = directFile(files, root, value)
@@ -329,14 +295,14 @@ func Load(files fs.FS, root string) (PackageManifest, error) {
 
 func directFile(files fs.FS, root, value string) (string, error) {
 	if strings.ContainsRune(value, 0) || value == "" {
-		return "", fmt.Errorf("invalid direct file path")
+		return "", fmt.Errorf("The direct file path is invalid.")
 	}
 	value = strings.ReplaceAll(value, "\\", "/")
 	if filepath.Separator == '\\' && strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//") {
 		value = filepath.ToSlash(filepath.VolumeName(root)) + value
 	}
 	if filepath.VolumeName(filepath.FromSlash(value)) != "" && !filepath.IsAbs(filepath.FromSlash(value)) {
-		return "", fmt.Errorf("ambiguous drive-relative file reference %q", value)
+		return "", fmt.Errorf("The drive-relative file reference %q is ambiguous.", value)
 	}
 	resolved := filepath.Clean(filepath.Join(root, filepath.FromSlash(value)))
 	if filepath.IsAbs(filepath.FromSlash(value)) {
@@ -348,14 +314,14 @@ func directFile(files fs.FS, root, value string) (string, error) {
 	}
 	name := filepath.ToSlash(relative)
 	if !fs.ValidPath(name) || name == "." || strings.Contains(name, ":") {
-		return "", fmt.Errorf("direct file reference is outside package: %q", value)
+		return "", fmt.Errorf("The direct file reference %q is outside the package.", value)
 	}
 	st, err := fs.Stat(files, name)
 	if err != nil {
 		return "", err
 	}
 	if !st.Mode().IsRegular() {
-		return "", fmt.Errorf("direct reference %q is not a regular file", value)
+		return "", fmt.Errorf("The direct reference %q is not a regular file.", value)
 	}
 	return name, nil
 }

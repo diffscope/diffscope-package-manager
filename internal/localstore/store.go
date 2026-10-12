@@ -36,7 +36,7 @@ func Open(root string, write bool) (*Session, error) {
 	}
 	s := &Session{Root: absolute, writable: write}
 	if _, err := os.Stat(filepath.Join(absolute, "packages.db")); err == nil {
-		return nil, fmt.Errorf("legacy package database is unsupported")
+		return nil, fmt.Errorf("A package database outside the .dspm directory is unsupported.")
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func Open(root string, write bool) (*Session, error) {
 	}
 	if err != nil || !locked {
 		if err == nil {
-			err = fmt.Errorf("package store is locked by another process")
+			err = fmt.Errorf("The package store is locked by another process.")
 		}
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func Open(root string, write bool) (*Session, error) {
 		}
 		for _, id := range ids {
 			if _, err := os.Stat(filepath.Join(s.txRoot(), id, "journal.json")); err == nil {
-				return nil, fmt.Errorf("package database is missing; cannot determine transaction commit state")
+				return nil, fmt.Errorf("The package database is missing. The transaction commit state cannot be determined.")
 			} else if !os.IsNotExist(err) {
 				return nil, err
 			}
@@ -110,7 +110,7 @@ func Open(root string, write bool) (*Session, error) {
 		locked, err = s.lock.TryLock()
 		if err != nil || !locked {
 			if err == nil {
-				err = fmt.Errorf("package store is locked during recovery")
+				err = fmt.Errorf("The package store is locked during recovery.")
 			}
 			return nil, err
 		}
@@ -149,7 +149,7 @@ func (s *Session) Close() error {
 func (s *Session) Records() ([]packagedatabase.Record, error) { return s.db.Records() }
 func (s *Session) Load(record packagedatabase.Record) (packageinfo.PackageManifest, error) {
 	if record.Directory != DirectoryName(record.Identity) {
-		return packageinfo.PackageManifest{}, fmt.Errorf("invalid installed directory for %s", record.String())
+		return packageinfo.PackageManifest{}, fmt.Errorf("The installed directory for %s is invalid.", record.String())
 	}
 	root := filepath.Join(s.Root, record.Directory)
 	d, err := packagearchive.OpenDirectory(root)
@@ -159,7 +159,7 @@ func (s *Session) Load(record packagedatabase.Record) (packageinfo.PackageManife
 	defer d.Close()
 	p, err := packageinfo.Load(d, root)
 	if err == nil && p.Identity.String() != record.Identity.String() {
-		err = fmt.Errorf("installed manifest identity disagrees with database")
+		err = fmt.Errorf("The installed manifest identity differs from the database record.")
 	}
 	return p, err
 }

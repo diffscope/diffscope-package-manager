@@ -22,7 +22,7 @@ type ContributionSummary struct {
 	Category  string           `json:"category"`
 	ID        string           `json:"id"`
 	Interface string           `json:"interface,omitempty"`
-	Level     string           `json:"level,omitempty"`
+	Level     int64            `json:"level,omitempty"`
 	Variant   string           `json:"variant,omitempty"`
 	Name      packageinfo.Text `json:"name,omitempty"`
 }

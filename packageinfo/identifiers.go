@@ -10,23 +10,23 @@ var (
 	genericIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 )
 
-// ParsePackageIdentifier validates and returns a package identifier.
+// Returns the package identifier or an error if its syntax is invalid.
 func ParsePackageIdentifier(text string) (string, error) {
 	if !IsValidPackageIdentifier(text) {
-		return "", fmt.Errorf("invalid package identifier %q", text)
+		return "", fmt.Errorf("The package identifier %q is invalid.", text)
 	}
 	return text, nil
 }
 
-// ParseGenericIdentifier validates and returns a generic identifier.
+// Returns the generic identifier or an error if its syntax is invalid.
 func ParseGenericIdentifier(text string) (string, error) {
 	if !IsValidGenericIdentifier(text) {
-		return "", fmt.Errorf("invalid generic identifier %q", text)
+		return "", fmt.Errorf("The generic identifier %q is invalid.", text)
 	}
 	return text, nil
 }
 
-// IsValidPackageIdentifier reports whether the input matches the package identifier format.
+// Returns whether the input matches the package identifier format.
 func IsValidPackageIdentifier(text string) bool {
 	if text == "" {
 		return false
@@ -34,7 +34,7 @@ func IsValidPackageIdentifier(text string) bool {
 	return packageIdentifierPattern.MatchString(text)
 }
 
-// IsValidGenericIdentifier reports whether the input matches the generic identifier format.
+// Returns whether the input matches the generic identifier format.
 func IsValidGenericIdentifier(text string) bool {
 	if text == "" {
 		return false

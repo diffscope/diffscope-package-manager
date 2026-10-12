@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// Stat is allowed for direct desc.json references. Opening opaque content is not.
+// Direct desc.json references permit Stat. Opaque declaration content must not be opened.
 type contributionReadGuard struct {
 	fs.FS
 	blocked map[string]bool
@@ -128,7 +128,7 @@ func TestOnlySingerDeclarationIsRead(t *testing.T) {
 	if opaque.SingerDeclaration != nil {
 		t.Fatal("singer declaration leaked into opaque contribution", opaque)
 	}
-	if singer.SingerDeclaration == nil || singer.ModuleMetadata == nil || singer.Name["_"] != "Singer" || singer.Interface != "example.Singer" || singer.Level != "2" || singer.Variant != "v" || singer.Singer == nil || singer.Singer.Avatar["_"] != "../../missing.png" || singer.Singer.Background["zh-CN"] != "/outside.png" || singer.Singer.DemoAudio != nil || singer.MetadataError != "" {
+	if singer.SingerDeclaration == nil || singer.ModuleMetadata == nil || singer.Name["_"] != "Singer" || singer.Interface != "example.Singer" || singer.Level != 2 || singer.Variant != "v" || singer.Singer == nil || singer.Singer.Avatar["_"] != "../../missing.png" || singer.Singer.Background["zh-CN"] != "/outside.png" || singer.Singer.DemoAudio != nil || singer.MetadataError != "" {
 		t.Fatal("singer extraction changed", singer)
 	}
 }

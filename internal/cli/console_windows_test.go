@@ -5,6 +5,8 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -15,8 +17,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// This child runs the real CLI entrypoint, including signal handling, attached
-// to a native Windows pseudoconsole rather than a mocked terminal writer.
+// Runs the CLI entry point with signal handling in a native Windows pseudoconsole.
 func TestConsoleHelper(t *testing.T) {
 	if os.Getenv("DSPM_CONSOLE_HELPER") != "1" {
 		return
@@ -30,8 +31,8 @@ func TestConsoleHelper(t *testing.T) {
 	_ = os.Setenv("TERM", "xterm-256color")
 	_ = os.Setenv("NO_COLOR", "1")
 	_ = os.Unsetenv("DSPM_JSON")
-	// The Go test runner's inherited pipe handles must be replaced with the
-	// attached console handles, just as a shell supplies them to a native CLI.
+	// Native console behavior requires the attached console handles in place of
+	// the test runner's inherited pipe handles.
 	out, err := os.OpenFile("CONOUT$", os.O_RDWR, 0)
 	if err != nil {
 		os.Exit(91)
@@ -44,6 +45,22 @@ func TestConsoleHelper(t *testing.T) {
 	_ = windows.SetStdHandle(windows.STD_OUTPUT_HANDLE, windows.Handle(out.Fd()))
 	_ = windows.SetStdHandle(windows.STD_ERROR_HANDLE, windows.Handle(out.Fd()))
 	_ = windows.SetStdHandle(windows.STD_INPUT_HANDLE, windows.Handle(in.Fd()))
+	if executable := os.Getenv("DSPM_TEST_CLI_BINARY"); executable != "" {
+		// The launcher supplies console handles to the binary as a terminal
+		// shell does. The test runner's pipe handles remain outside the child.
+		interrupts := make(chan os.Signal, 1)
+		signal.Notify(interrupts, os.Interrupt)
+		defer signal.Stop(interrupts)
+		child := exec.Command(executable, os.Args[1:]...)
+		child.Stdin, child.Stdout, child.Stderr = in, out, out
+		if err := child.Run(); err != nil {
+			if exit, ok := err.(*exec.ExitError); ok {
+				os.Exit(exit.ExitCode())
+			}
+			os.Exit(93)
+		}
+		os.Exit(0)
+	}
 	if err := Execute(); err != nil {
 		os.Exit(1)
 	}
@@ -51,6 +68,15 @@ func TestConsoleHelper(t *testing.T) {
 }
 
 func consoleRun(t *testing.T, interruptAt string, args ...string) (string, uint32) {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return consoleRunExecutable(t, executable, interruptAt, append([]string{"-test.run=^TestConsoleHelper$", "--"}, args...)...)
+}
+
+func consoleRunExecutable(t *testing.T, executable, interruptAt string, args ...string) (string, uint32) {
 	t.Helper()
 	var inputRead, inputWrite, outputRead, outputWrite windows.Handle
 	for _, pair := range [][2]*windows.Handle{{&inputRead, &inputWrite}, {&outputRead, &outputWrite}} {
@@ -73,7 +99,7 @@ func consoleRun(t *testing.T, interruptAt string, args ...string) (string, uint3
 		t.Fatal(err)
 	}
 	defer attrs.Delete()
-	// PSEUDOCONSOLE takes the handle itself as lpValue, rather than &handle.
+	// The PSEUDOCONSOLE attribute requires the handle value as lpValue.
 	update := windows.NewLazySystemDLL("kernel32.dll").NewProc("UpdateProcThreadAttribute")
 	ok, _, updateErr := update.Call(uintptr(unsafe.Pointer(attrs.List())), 0, windows.PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, uintptr(console), unsafe.Sizeof(console), 0, 0)
 	if ok == 0 {
@@ -82,11 +108,7 @@ func consoleRun(t *testing.T, interruptAt string, args ...string) (string, uint3
 	}
 	si := windows.StartupInfoEx{ProcThreadAttributeList: attrs.List()}
 	si.Cb = uint32(unsafe.Sizeof(si))
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	argv := append([]string{executable, "-test.run=^TestConsoleHelper$", "--"}, args...)
+	argv := append([]string{executable}, args...)
 	quoted := make([]string, len(argv))
 	for i, arg := range argv {
 		quoted[i] = windows.EscapeArg(arg)

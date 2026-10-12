@@ -33,7 +33,7 @@ func (s *Session) writeJournal(j journal) error {
 		return err
 	}
 	if len(b) > 16<<20 {
-		return fmt.Errorf("transaction journal exceeds limit")
+		return fmt.Errorf("The transaction journal exceeds its byte limit.")
 	}
 	base := filepath.Join(s.txRoot(), j.ID)
 	f, err := os.OpenFile(filepath.Join(base, "journal.tmp"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)

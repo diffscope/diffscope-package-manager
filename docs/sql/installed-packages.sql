@@ -1,4 +1,4 @@
--- Defines the Spec 2.4 installed package index with schema version 241.
+-- Defines the Spec 2.4 installed package index with schema version 242.
 -- The DDL matches packagedatabase/database.go and requires an empty database.
 -- Execution does not migrate a database or register package contents.
 -- Foreign key enforcement requires configuration on each connection.
@@ -33,10 +33,10 @@ CREATE TABLE contributions (
     category TEXT NOT NULL,
     id TEXT NOT NULL,
     interface TEXT NOT NULL,
-    level TEXT NOT NULL,
+    level INTEGER NOT NULL,
     variant TEXT NOT NULL,
     PRIMARY KEY (package_id, package_version, category, id),
-    CHECK (category = 'singer' OR (interface = '' AND level = '' AND variant = '')),
+    CHECK (category = 'singer' OR (interface = '' AND level = 0 AND variant = '')),
     FOREIGN KEY (package_id, package_version)
         REFERENCES packages (id, version) ON DELETE CASCADE
 );
@@ -71,6 +71,6 @@ CREATE TABLE transaction_commits (
     id TEXT PRIMARY KEY NOT NULL
 );
 
-PRAGMA user_version = 241;
+PRAGMA user_version = 242;
 
 COMMIT;

@@ -3,52 +3,41 @@ package packageinfo
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
-// Version has four arbitrary-precision decimal components. Its zero value is 0.
-type Version struct{ parts [4]string }
+// Version contains four nonnegative integer components. Its zero value is 0.0.0.0.
+type Version struct{ parts [4]int }
 
 func ParseVersion(s string) (Version, error) {
 	var v Version
 	p := strings.Split(s, ".")
 	if len(p) > 4 {
-		return v, fmt.Errorf("invalid version %q", s)
+		return v, fmt.Errorf("The version %q is invalid.", s)
 	}
 	for i, c := range p {
-		if c == "" || (len(c) > 1 && c[0] == '0') {
-			return v, fmt.Errorf("invalid version %q", s)
+		if c == "" || c[0] < '0' || c[0] > '9' || (len(c) > 1 && c[0] == '0') {
+			return v, fmt.Errorf("The version %q is invalid.", s)
 		}
-		for _, b := range []byte(c) {
-			if b < '0' || b > '9' {
-				return v, fmt.Errorf("invalid version %q", s)
-			}
+		n, err := strconv.Atoi(c)
+		if err != nil {
+			return v, fmt.Errorf("The version %q is invalid.", s)
 		}
-		v.parts[i] = c
+		v.parts[i] = n
 	}
 	return v, nil
 }
-func (v Version) components() [4]string {
-	p := v.parts
-	for i := range p {
-		if p[i] == "" {
-			p[i] = "0"
-		}
-	}
-	return p
+func (v Version) String() string {
+	return fmt.Sprintf("%d.%d.%d.%d", v.parts[0], v.parts[1], v.parts[2], v.parts[3])
 }
-func (v Version) String() string { p := v.components(); return strings.Join(p[:], ".") }
 func (v Version) Compare(w Version) int {
-	a, b := v.components(), w.components()
-	for i := range a {
-		if len(a[i]) < len(b[i]) {
+	for i, a := range v.parts {
+		if a < w.parts[i] {
 			return -1
 		}
-		if len(a[i]) > len(b[i]) {
+		if a > w.parts[i] {
 			return 1
-		}
-		if c := strings.Compare(a[i], b[i]); c != 0 {
-			return c
 		}
 	}
 	return 0
@@ -94,7 +83,7 @@ func ParseSelector(s string) (Selector, error) {
 	base, contrib, hasContrib := strings.Cut(s, ":")
 	id, version, hasVersion := strings.Cut(base, "=")
 	if !IsValidPackageIdentifier(id) {
-		return t, fmt.Errorf("invalid package selector %q", s)
+		return t, fmt.Errorf("The package selector %q is invalid.", s)
 	}
 	t.ID = id
 	if hasVersion {
@@ -107,7 +96,7 @@ func ParseSelector(s string) (Selector, error) {
 	if hasContrib {
 		c, i, ok := strings.Cut(contrib, "/")
 		if !ok || !ValidDottedID(c) || !IsValidGenericIdentifier(i) {
-			return t, fmt.Errorf("invalid contribution selector %q", s)
+			return t, fmt.Errorf("The contribution selector %q is invalid.", s)
 		}
 		t.Category = c
 		t.ContributionID = i

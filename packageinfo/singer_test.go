@@ -69,13 +69,13 @@ func TestSingerRequiredFieldsHaveExplicitFailureState(t *testing.T) {
 
 func TestSingerCompleteMetadataContainsRequiredFields(t *testing.T) {
 	p, err := Load(manifestFS(singerPackage, map[string]string{
-		"singer.json": `{"interface":"example.Singer","level":2e0,"variant":"v","name":{"_":"","zh-CN":"歌手"},"avatar":"../../unchecked.png","imports":false}`,
+		"singer.json": `{"interface":"example.Singer","level":2,"variant":"v","name":{"_":"","zh-CN":"歌手"},"avatar":"../../unchecked.png","imports":false}`,
 	}), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := p.Contributions[0]
-	if c.ModuleMetadata == nil || c.MetadataError != "" || len(p.Diagnostics) != 0 || c.Interface != "example.Singer" || c.Level != "2" || c.Variant != "v" || c.Name["_"] != "" {
+	if c.ModuleMetadata == nil || c.MetadataError != "" || len(p.Diagnostics) != 0 || c.Interface != "example.Singer" || c.Level != 2 || c.Variant != "v" || c.Name["_"] != "" {
 		t.Fatal("Complete singer metadata was not extracted.", c, p.Diagnostics)
 	}
 	encoded, err := json.Marshal(c)

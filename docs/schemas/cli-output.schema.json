@@ -1,13 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "cli-output.schema.json",
-  "title": "dspm local CLI output (Spec 2.4)",
+  "title": "dspm local and remote CLI output (OVCPR v1)",
   "description": "Validates an individual query response, mutation NDJSON record, or root version response. NDJSON validation applies separately to each record. Event ordering, completion, and cross-field constraints are specified in ../interoperability.md. Additional properties support additive extensions. Additional event types require an updated schema.",
   "oneOf": [
-    { "$ref": "#/$defs/querySuccess" },
-    { "$ref": "#/$defs/queryFailure" },
-    { "$ref": "#/$defs/mutationEvent" },
-    { "$ref": "#/$defs/versionResponse" }
+    {
+      "$ref": "#/$defs/querySuccess"
+    },
+    {
+      "$ref": "#/$defs/queryFailure"
+    },
+    {
+      "$ref": "#/$defs/mutationEvent"
+    },
+    {
+      "$ref": "#/$defs/versionResponse"
+    }
   ],
   "$defs": {
     "packageId": {
@@ -25,7 +33,7 @@
     "version": {
       "type": "string",
       "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$",
-      "description": "The value contains four arbitrary-precision decimal integer components. Version comparison requires numeric component comparison. Package and manifest versions use this representation independently of the executable version."
+      "description": "The value contains four nonnegative decimal integer components. Each component must fit a Go int. Version comparison requires numeric component comparison. Package and manifest versions use this representation independently of the executable version."
     },
     "hash": {
       "type": "string",
@@ -39,38 +47,65 @@
     },
     "text": {
       "type": "object",
-      "required": ["_"],
-      "additionalProperties": { "type": "string" },
+      "required": [
+        "_"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      },
       "description": "The object retains all language keys and explicit empty strings. The key '_' identifies the default value."
     },
     "filePaths": {
       "$ref": "#/$defs/text",
-      "additionalProperties": { "type": "string", "minLength": 1 },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      },
       "description": "Each localized value is a nonempty, fully qualified, lexically normalized host path in the package read context. Each reference must identify a regular file inside the package."
     },
     "diagnosticArray": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "diagnostics": {
       "description": "Envelope diagnostics and packing summary diagnostics can be null or a string array, including an empty array.",
       "anyOf": [
-        { "type": "null" },
-        { "$ref": "#/$defs/diagnosticArray" }
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/diagnosticArray"
+        }
       ]
     },
     "stringArrayOrNull": {
       "anyOf": [
-        { "type": "null" },
-        { "type": "array", "items": { "type": "string" } }
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       ]
     },
     "identity": {
       "type": "object",
-      "required": ["id", "version"],
+      "required": [
+        "id",
+        "version"
+      ],
       "properties": {
-        "id": { "$ref": "#/$defs/packageId" },
-        "version": { "$ref": "#/$defs/version" }
+        "id": {
+          "$ref": "#/$defs/packageId"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        }
       }
     },
     "dependency": {
@@ -80,377 +115,2241 @@
     "contributionSummary": {
       "type": "object",
       "description": "The object represents an indexed contribution. Singer summaries can include extracted declaration fields and names. Opaque summaries contain category and ID only.",
-      "required": ["category", "id"],
+      "required": [
+        "category",
+        "id"
+      ],
       "properties": {
-        "category": { "$ref": "#/$defs/dottedId" },
-        "id": { "$ref": "#/$defs/genericId" },
-        "interface": { "$ref": "#/$defs/dottedId" },
-        "level": { "type": "string", "pattern": "^[1-9][0-9]*$" },
-        "variant": { "$ref": "#/$defs/dottedId" },
-        "name": { "$ref": "#/$defs/text" }
+        "category": {
+          "$ref": "#/$defs/dottedId"
+        },
+        "id": {
+          "$ref": "#/$defs/genericId"
+        },
+        "interface": {
+          "$ref": "#/$defs/dottedId"
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "variant": {
+          "$ref": "#/$defs/dottedId"
+        },
+        "name": {
+          "$ref": "#/$defs/text"
+        }
       },
-      "if": { "properties": { "category": { "const": "singer" } } },
+      "if": {
+        "properties": {
+          "category": {
+            "const": "singer"
+          }
+        }
+      },
       "else": {
-        "not": { "anyOf": [
-          { "required": ["name"] }, { "required": ["interface"] },
-          { "required": ["level"] }, { "required": ["variant"] }
-        ] }
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "name"
+              ]
+            },
+            {
+              "required": [
+                "interface"
+              ]
+            },
+            {
+              "required": [
+                "level"
+              ]
+            },
+            {
+              "required": [
+                "variant"
+              ]
+            }
+          ]
+        }
       }
     },
     "installedPackage": {
       "type": "object",
-      "required": ["id", "version", "compatVersion", "hash", "installedAt", "directory", "dependencies", "contributions"],
+      "required": [
+        "id",
+        "version",
+        "compatVersion",
+        "hash",
+        "installedAt",
+        "directory",
+        "dependencies",
+        "contributions"
+      ],
       "properties": {
-        "id": { "$ref": "#/$defs/packageId" },
-        "version": { "$ref": "#/$defs/version" },
-        "compatVersion": { "$ref": "#/$defs/version" },
-        "hash": { "$ref": "#/$defs/hash" },
-        "installedAt": { "type": "integer", "description": "The value is the installation Unix timestamp in seconds." },
-        "directory": { "$ref": "#/$defs/directory" },
-        "dependencies": { "type": "array", "items": { "$ref": "#/$defs/dependency" } },
-        "name": { "$ref": "#/$defs/text" },
-        "description": { "$ref": "#/$defs/text" },
-        "vendor": { "$ref": "#/$defs/text" },
-        "contributions": { "type": "array", "items": { "$ref": "#/$defs/contributionSummary" } }
+        "id": {
+          "$ref": "#/$defs/packageId"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "compatVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "installedAt": {
+          "type": "integer",
+          "description": "The value is the installation Unix timestamp in seconds."
+        },
+        "directory": {
+          "$ref": "#/$defs/directory"
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dependency"
+          }
+        },
+        "name": {
+          "$ref": "#/$defs/text"
+        },
+        "description": {
+          "$ref": "#/$defs/text"
+        },
+        "vendor": {
+          "$ref": "#/$defs/text"
+        },
+        "contributions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contributionSummary"
+          }
+        }
       }
     },
     "singer": {
       "type": "object",
       "properties": {
-        "avatar": { "$ref": "#/$defs/text" },
-        "background": { "$ref": "#/$defs/text" },
-        "demoAudio": { "$ref": "#/$defs/text" }
+        "avatar": {
+          "$ref": "#/$defs/text"
+        },
+        "background": {
+          "$ref": "#/$defs/text"
+        },
+        "demoAudio": {
+          "$ref": "#/$defs/text"
+        }
       },
       "description": "The object contains extracted singer resource strings and can be empty. Resource paths, media formats, and referenced files are not validated."
     },
     "moduleMetadata": {
       "type": "object",
-      "required": ["interface", "level", "variant"],
+      "required": [
+        "interface",
+        "level",
+        "variant"
+      ],
       "properties": {
-        "interface": { "$ref": "#/$defs/dottedId" },
-        "level": { "type": "integer", "minimum": 1 },
-        "variant": { "$ref": "#/$defs/dottedId" }
+        "interface": {
+          "$ref": "#/$defs/dottedId"
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "variant": {
+          "$ref": "#/$defs/dottedId"
+        }
       },
       "description": "The object contains all required common module metadata fields. It represents successful extraction rather than a partial result."
     },
     "contribution": {
       "type": "object",
-      "required": ["category", "id", "entry"],
+      "required": [
+        "category",
+        "id",
+        "entry"
+      ],
       "properties": {
-        "category": { "$ref": "#/$defs/dottedId" },
-        "id": { "$ref": "#/$defs/genericId" },
-        "path": { "type": "string", "minLength": 1 },
-        "entry": { "type": "object", "description": "The object retains the expanded desc.json contribution entry and arbitrary fields. A non-string path in an opaque entry remains uninterpreted category data." },
-        "manifest": { "type": "object", "description": "The object contains the singer declaration. The expanded flag distinguishes expanded metadata from a raw declaration retained after expansion failure. The field is absent for opaque contributions." },
-        "expanded": { "type": "boolean", "description": "The value indicates successful singer declaration expansion. The field is absent for opaque contributions." },
-        "metadataError": { "type": "string", "minLength": 1, "description": "The value reports failed variable expansion or unavailable required singer metadata fields. All three common module fields are absent in this failure state. The field is absent after successful extraction and for opaque contributions." },
-        "name": { "$ref": "#/$defs/text", "description": "The object contains the extracted singer name or the contribution ID if no name is declared. The field is absent for opaque contributions." },
-        "interface": { "$ref": "#/$defs/dottedId", "description": "The value is an interface ID extracted from singer metadata." },
-        "level": { "type": "integer", "minimum": 1, "description": "The value is a positive arbitrary-precision integer extracted from singer metadata." },
-        "variant": { "$ref": "#/$defs/dottedId", "description": "The value is a variant ID extracted from singer metadata." },
-        "singer": { "$ref": "#/$defs/singer" }
+        "category": {
+          "$ref": "#/$defs/dottedId"
+        },
+        "id": {
+          "$ref": "#/$defs/genericId"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entry": {
+          "type": "object",
+          "description": "The object retains the expanded desc.json contribution entry and arbitrary fields. A non-string path in an opaque entry remains uninterpreted category data."
+        },
+        "manifest": {
+          "type": "object",
+          "description": "The object contains the singer declaration. The expanded flag distinguishes expanded metadata from a raw declaration retained after expansion failure. The field is absent for opaque contributions."
+        },
+        "expanded": {
+          "type": "boolean",
+          "description": "The value indicates successful singer declaration expansion. The field is absent for opaque contributions."
+        },
+        "metadataError": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The value reports failed variable expansion or unavailable required singer metadata fields. All three common module fields are absent in this failure state. The field is absent after successful extraction and for opaque contributions."
+        },
+        "name": {
+          "$ref": "#/$defs/text",
+          "description": "The object contains the extracted singer name or the contribution ID if no name is declared. The field is absent for opaque contributions."
+        },
+        "interface": {
+          "$ref": "#/$defs/dottedId",
+          "description": "The value is an interface ID extracted from singer metadata."
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807,
+          "description": "The value is a positive singer API level."
+        },
+        "variant": {
+          "$ref": "#/$defs/dottedId",
+          "description": "The value is a variant ID extracted from singer metadata."
+        },
+        "singer": {
+          "$ref": "#/$defs/singer"
+        }
       },
-      "if": { "properties": { "category": { "const": "singer" } } },
+      "if": {
+        "properties": {
+          "category": {
+            "const": "singer"
+          }
+        }
+      },
       "then": {
-        "required": ["path", "manifest", "expanded"],
+        "required": [
+          "path",
+          "manifest",
+          "expanded"
+        ],
         "oneOf": [
           {
             "$ref": "#/$defs/moduleMetadata",
-            "properties": { "expanded": { "const": true } },
-            "not": { "required": ["metadataError"] }
+            "properties": {
+              "expanded": {
+                "const": true
+              }
+            },
+            "not": {
+              "required": [
+                "metadataError"
+              ]
+            }
           },
           {
-            "required": ["metadataError"],
-            "not": { "anyOf": [
-              { "required": ["interface"] }, { "required": ["level"] },
-              { "required": ["variant"] }
-            ] }
+            "required": [
+              "metadataError"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "interface"
+                  ]
+                },
+                {
+                  "required": [
+                    "level"
+                  ]
+                },
+                {
+                  "required": [
+                    "variant"
+                  ]
+                }
+              ]
+            }
           }
         ],
-        "if": { "properties": { "expanded": { "const": false } } },
+        "if": {
+          "properties": {
+            "expanded": {
+              "const": false
+            }
+          }
+        },
         "then": {
-          "not": { "anyOf": [{ "required": ["name"] }, { "required": ["singer"] }] }
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "name"
+                ]
+              },
+              {
+                "required": [
+                  "singer"
+                ]
+              }
+            ]
+          }
         }
       },
       "else": {
-        "not": { "anyOf": [
-          { "required": ["name"] }, { "required": ["interface"] },
-          { "required": ["level"] }, { "required": ["variant"] },
-          { "required": ["manifest"] }, { "required": ["expanded"] },
-          { "required": ["singer"] }, { "required": ["metadataError"] }
-        ] }
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "name"
+              ]
+            },
+            {
+              "required": [
+                "interface"
+              ]
+            },
+            {
+              "required": [
+                "level"
+              ]
+            },
+            {
+              "required": [
+                "variant"
+              ]
+            },
+            {
+              "required": [
+                "manifest"
+              ]
+            },
+            {
+              "required": [
+                "expanded"
+              ]
+            },
+            {
+              "required": [
+                "singer"
+              ]
+            },
+            {
+              "required": [
+                "metadataError"
+              ]
+            }
+          ]
+        }
       }
     },
     "packageManifest": {
       "type": "object",
-      "required": ["id", "version", "formatVersion", "runtimeLevel", "compatVersion", "dependencies", "contributions", "manifest"],
+      "required": [
+        "id",
+        "version",
+        "formatVersion",
+        "runtimeLevel",
+        "compatVersion",
+        "dependencies",
+        "contributions",
+        "manifest"
+      ],
       "properties": {
-        "id": { "$ref": "#/$defs/packageId" },
-        "version": { "$ref": "#/$defs/version" },
-        "formatVersion": { "const": "1.0.0.0" },
-        "runtimeLevel": { "const": 1 },
-        "compatVersion": { "$ref": "#/$defs/version" },
-        "dependencies": { "type": "array", "items": { "$ref": "#/$defs/dependency" } },
-        "contributions": { "type": "array", "items": { "$ref": "#/$defs/contribution" } },
-        "name": { "$ref": "#/$defs/text" },
-        "description": { "$ref": "#/$defs/text" },
-        "vendor": { "$ref": "#/$defs/text" },
-        "license": { "$ref": "#/$defs/filePaths" },
-        "readme": { "$ref": "#/$defs/filePaths" },
-        "url": { "type": "string", "description": "The value is the website string after variable expansion. An explicit empty string is retained. The field is omitted if absent." },
-        "manifest": { "type": "object", "description": "The object contains expanded desc.json with vars removed. Arbitrary package fields and JSON types are retained. Source formatting is not retained." },
-        "diagnostics": { "$ref": "#/$defs/diagnosticArray" }
+        "id": {
+          "$ref": "#/$defs/packageId"
+        },
+        "version": {
+          "$ref": "#/$defs/version"
+        },
+        "formatVersion": {
+          "const": "1.0.0.0"
+        },
+        "runtimeLevel": {
+          "const": 1
+        },
+        "compatVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dependency"
+          }
+        },
+        "contributions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contribution"
+          }
+        },
+        "name": {
+          "$ref": "#/$defs/text"
+        },
+        "description": {
+          "$ref": "#/$defs/text"
+        },
+        "vendor": {
+          "$ref": "#/$defs/text"
+        },
+        "license": {
+          "$ref": "#/$defs/filePaths"
+        },
+        "readme": {
+          "$ref": "#/$defs/filePaths"
+        },
+        "url": {
+          "type": "string",
+          "description": "The value is the website string after variable expansion. An explicit empty string is retained. The field is omitted if absent."
+        },
+        "manifest": {
+          "type": "object",
+          "description": "The object contains expanded desc.json with vars removed. Arbitrary package fields and JSON types are retained. Source formatting is not retained."
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/diagnosticArray"
+        }
       }
     },
     "info": {
       "type": "object",
-      "required": ["package"],
+      "required": [
+        "package"
+      ],
       "properties": {
-        "package": { "$ref": "#/$defs/packageManifest" },
-        "installation": { "$ref": "#/$defs/installedPackage" },
-        "file": { "type": "string", "minLength": 1 },
-        "hash": { "$ref": "#/$defs/hash" }
+        "package": {
+          "$ref": "#/$defs/packageManifest"
+        },
+        "installation": {
+          "$ref": "#/$defs/installedPackage"
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hash": {
+          "$ref": "#/$defs/hash"
+        }
       },
       "oneOf": [
-        { "required": ["file", "hash"], "not": { "required": ["installation"] } },
-        { "required": ["installation"], "not": { "anyOf": [{ "required": ["file"] }, { "required": ["hash"] }] } }
+        {
+          "required": [
+            "file",
+            "hash"
+          ],
+          "not": {
+            "required": [
+              "installation"
+            ]
+          }
+        },
+        {
+          "required": [
+            "installation"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "file"
+                ]
+              },
+              {
+                "required": [
+                  "hash"
+                ]
+              }
+            ]
+          }
+        }
       ]
     },
     "error": {
       "type": "object",
-      "required": ["code", "message"],
+      "required": [
+        "code",
+        "message"
+      ],
       "properties": {
-        "code": { "type": "string", "minLength": 1 },
-        "message": { "type": "string" },
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string"
+        },
         "details": {}
       },
-      "description": "Defined codes are INVALID_ARGUMENT, INVALID_PACKAGE, CONFLICT, DEPENDENCY_ERROR, NOT_FOUND, AMBIGUOUS_VERSION, CANCELLED, and IO_ERROR. Unknown codes require generic failure handling. AMBIGUOUS_VERSION details contains an array of canonical package selectors."
+          "description": "The code identifies a local, remote, download, cache, or publication failure specified in ../interoperability.md. Unknown codes require generic failure handling. AMBIGUOUS_VERSION details contain an array of canonical package selectors."
     },
     "querySuccess": {
       "type": "object",
-      "required": ["ok", "command", "data", "diagnostics"],
+      "required": [
+        "ok",
+        "command",
+        "data",
+        "diagnostics"
+      ],
       "properties": {
-        "ok": { "const": true },
-        "diagnostics": { "$ref": "#/$defs/diagnostics" }
+        "ok": {
+          "const": true
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/diagnostics"
+        }
       },
-      "not": { "anyOf": [{ "required": ["error"] }, { "required": ["event"] }] },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "error"
+            ]
+          },
+          {
+            "required": [
+              "event"
+            ]
+          }
+        ]
+      },
       "oneOf": [
-        { "properties": { "command": { "const": "info" }, "data": { "$ref": "#/$defs/info" } } },
-        { "properties": { "command": { "const": "list" }, "data": { "type": "array", "items": { "$ref": "#/$defs/installedPackage" } } } }
+        {
+          "properties": {
+            "command": {
+              "const": "info"
+            },
+            "data": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/info"
+                },
+                {
+                  "$ref": "#/$defs/remoteInfo"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "properties": {
+            "command": {
+              "const": "list"
+            },
+            "data": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/installedPackage"
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "command": {
+              "enum": [
+                "cache dir",
+                "cache info"
+              ]
+            },
+            "data": {
+              "type": "object"
+            }
+          }
+        }
       ]
     },
     "queryFailure": {
       "type": "object",
-      "required": ["ok", "command", "error", "diagnostics"],
+      "required": [
+        "ok",
+        "command",
+        "error",
+        "diagnostics"
+      ],
       "properties": {
-        "ok": { "const": false },
-        "command": { "type": "string", "minLength": 1 },
-        "error": { "$ref": "#/$defs/error" },
-        "diagnostics": { "$ref": "#/$defs/diagnostics" }
+        "ok": {
+          "const": false
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/diagnostics"
+        }
       },
-      "not": { "anyOf": [{ "required": ["data"] }, { "required": ["event"] }] },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "data"
+            ]
+          },
+          {
+            "required": [
+              "event"
+            ]
+          }
+        ]
+      },
       "description": "Argument and command setup errors can identify the root command dspm or the selected subcommand."
     },
     "action": {
       "type": "object",
-      "required": ["package", "action"],
+      "required": [
+        "package",
+        "action"
+      ],
       "properties": {
-        "package": { "$ref": "#/$defs/identity" },
-        "action": { "enum": ["install", "overwrite", "skip", "remove", "cascade"] },
-        "file": { "type": "string" },
-        "hash": { "$ref": "#/$defs/hash" }
+        "package": {
+          "$ref": "#/$defs/identity"
+        },
+        "action": {
+          "enum": [
+            "install",
+            "overwrite",
+            "skip",
+            "remove",
+            "cascade"
+          ]
+        },
+        "file": {
+          "type": "string"
+        },
+        "hash": {
+          "$ref": "#/$defs/hash"
+        }
       },
-      "if": { "properties": { "action": { "enum": ["install", "overwrite", "skip"] } } },
-      "then": { "required": ["file", "hash"] },
-      "else": { "not": { "anyOf": [{ "required": ["file"] }, { "required": ["hash"] }] } }
+      "if": {
+        "properties": {
+          "action": {
+            "enum": [
+              "install",
+              "overwrite",
+              "skip"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "file",
+          "hash"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "file"
+              ]
+            },
+            {
+              "required": [
+                "hash"
+              ]
+            }
+          ]
+        }
+      }
     },
     "installAction": {
       "allOf": [
-        { "$ref": "#/$defs/action" },
-        { "required": ["file", "hash"], "properties": { "action": { "enum": ["install", "overwrite", "skip"] } } }
+        {
+          "$ref": "#/$defs/action"
+        },
+        {
+          "required": [
+            "file",
+            "hash"
+          ],
+          "properties": {
+            "action": {
+              "enum": [
+                "install",
+                "overwrite",
+                "skip"
+              ]
+            }
+          }
+        }
       ]
     },
     "removeAction": {
       "allOf": [
-        { "$ref": "#/$defs/action" },
-        { "properties": { "action": { "enum": ["remove", "cascade"] } }, "not": { "anyOf": [{ "required": ["file"] }, { "required": ["hash"] }] } }
+        {
+          "$ref": "#/$defs/action"
+        },
+        {
+          "properties": {
+            "action": {
+              "enum": [
+                "remove",
+                "cascade"
+              ]
+            }
+          },
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "file"
+                ]
+              },
+              {
+                "required": [
+                  "hash"
+                ]
+              }
+            ]
+          }
+        }
       ]
     },
     "mutationSummary": {
       "type": "object",
-      "required": ["actions", "dryRun"],
+      "required": [
+        "actions",
+        "dryRun"
+      ],
       "properties": {
-        "actions": { "type": "array", "items": { "$ref": "#/$defs/action" } },
-        "dryRun": { "type": "boolean" },
-        "diagnostics": { "$ref": "#/$defs/diagnosticArray", "minItems": 1 },
-        "ignored": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action"
+          }
+        },
+        "dryRun": {
+          "type": "boolean"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/diagnosticArray"
+        },
+        "ignored": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "diagnosticDetails": {
+          "$ref": "#/$defs/diagnosticDetails"
+        }
       }
     },
     "packPlan": {
       "type": "object",
-      "required": ["source", "output", "files", "directories", "bytes", "package"],
+      "required": [
+        "source",
+        "output",
+        "files",
+        "directories",
+        "bytes",
+        "package"
+      ],
       "properties": {
-        "source": { "type": "string", "minLength": 1 },
-        "output": { "type": "string", "minLength": 1 },
-        "files": { "$ref": "#/$defs/stringArrayOrNull" },
-        "directories": { "$ref": "#/$defs/stringArrayOrNull" },
-        "bytes": { "type": "integer", "minimum": 0 },
-        "package": { "$ref": "#/$defs/packageManifest" }
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "output": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "$ref": "#/$defs/stringArrayOrNull"
+        },
+        "directories": {
+          "$ref": "#/$defs/stringArrayOrNull"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "package": {
+          "$ref": "#/$defs/packageManifest"
+        }
       }
     },
     "packResult": {
       "type": "object",
-      "required": ["file", "hash", "package", "size"],
+      "required": [
+        "file",
+        "hash",
+        "package",
+        "size"
+      ],
       "properties": {
-        "file": { "type": "string", "minLength": 1 },
-        "hash": { "$ref": "#/$defs/hash" },
-        "size": { "type": "integer", "minimum": 0 },
-        "package": { "$ref": "#/$defs/identity" }
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "package": {
+          "$ref": "#/$defs/identity"
+        }
       }
     },
     "packSummary": {
       "type": "object",
-      "required": ["diagnostics"],
+      "required": [
+        "diagnostics"
+      ],
       "properties": {
-        "diagnostics": { "$ref": "#/$defs/diagnostics" },
-        "dryRun": { "const": true }
+        "diagnostics": {
+          "$ref": "#/$defs/diagnostics"
+        },
+        "dryRun": {
+          "const": true
+        }
       },
       "description": "The dryRun field is present and true for a packing dry run. Normal packing summaries omit dryRun."
     },
     "progress": {
       "type": "object",
-      "required": ["phase", "target", "state", "filePath", "current", "total", "filesDone", "filesTotal"],
+      "required": [
+        "phase",
+        "target",
+        "state",
+        "filePath",
+        "current",
+        "total",
+        "filesDone",
+        "filesTotal"
+      ],
       "properties": {
-        "phase": { "enum": ["inspect", "resolve", "extract", "verify", "commit", "check", "pack"] },
-        "target": { "type": "string" },
-        "state": { "enum": ["start", "update", "done"] },
-        "filePath": { "type": "string" },
-        "current": { "type": "integer", "minimum": 0 },
-        "total": { "type": "integer", "minimum": 0 },
-        "filesDone": { "type": "integer", "minimum": 0 },
-        "filesTotal": { "type": "integer", "minimum": 0 }
+        "phase": {
+          "enum": [
+            "inspect",
+            "resolve",
+            "extract",
+            "verify",
+            "commit",
+            "check",
+            "pack",
+            "metadata",
+            "archive-verify",
+            "lock-wait"
+          ]
+        },
+        "target": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "start",
+            "update",
+            "done"
+          ]
+        },
+        "filePath": {
+          "type": "string"
+        },
+        "current": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "filesDone": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "filesTotal": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "mutationRecord": {
       "type": "object",
-      "required": ["command", "event", "data"],
-      "not": { "anyOf": [{ "required": ["ok"] }, { "required": ["error"] }] }
+      "required": [
+        "command",
+        "event",
+        "data"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "ok"
+            ]
+          },
+          {
+            "required": [
+              "error"
+            ]
+          }
+        ]
+      }
     },
     "mutationEvent": {
       "oneOf": [
         {
-          "allOf": [{ "$ref": "#/$defs/mutationRecord" }],
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
           "properties": {
-            "command": { "enum": ["install", "remove", "pack"] }, "event": { "const": "progress" },
-            "data": { "$ref": "#/$defs/progress" }
-          }
-        },
-        {
-          "allOf": [{ "$ref": "#/$defs/mutationRecord" }],
-          "properties": {
-            "command": { "const": "remove" }, "event": { "const": "ignored" },
-            "data": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
-          }
-        },
-        {
-          "allOf": [{ "$ref": "#/$defs/mutationRecord" }],
-          "properties": {
-            "command": { "const": "install" }, "event": { "const": "inspect_start" },
-            "data": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
-          }
-        },
-        {
-          "allOf": [{ "$ref": "#/$defs/mutationRecord" }],
-          "properties": {
-            "command": { "const": "install" }, "event": { "enum": ["inspect_ok", "staged"] },
-            "data": { "$ref": "#/$defs/identity" }
-          }
-        },
-        {
-          "allOf": [{ "$ref": "#/$defs/mutationRecord" }],
-          "properties": {
-            "command": { "const": "install" }, "event": { "const": "plan" },
-            "data": { "type": "array", "items": { "$ref": "#/$defs/installAction" } }
-          }
-        },
-        {
-          "allOf": [{ "$ref": "#/$defs/mutationRecord" }],
-          "properties": {
-            "command": { "const": "remove" }, "event": { "const": "plan" },
-            "data": { "type": "array", "items": { "$ref": "#/$defs/removeAction" } }
-          }
-        },
-        {
-          "allOf": [{ "$ref": "#/$defs/mutationRecord" }],
-          "properties": {
-            "command": { "const": "install" }, "event": { "const": "result" },
-            "data": { "$ref": "#/$defs/installAction" }
-          }
-        },
-        {
-          "allOf": [{ "$ref": "#/$defs/mutationRecord" }],
-          "properties": {
-            "command": { "const": "remove" }, "event": { "const": "result" },
-            "data": { "$ref": "#/$defs/removeAction" }
+            "command": {
+              "enum": [
+                "install",
+                "remove",
+                "pack"
+              ]
+            },
+            "event": {
+              "const": "progress"
+            },
+            "data": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/progress"
+                },
+                {
+                  "$ref": "#/$defs/dl_downloadProgress"
+                }
+              ]
+            }
           }
         },
         {
           "allOf": [
-            { "$ref": "#/$defs/mutationRecord" },
             {
-              "if": { "properties": { "command": { "const": "install" } } },
-              "then": { "properties": { "data": {
-                "properties": { "actions": { "items": { "$ref": "#/$defs/installAction" } } },
-                "not": { "required": ["ignored"] }
-              } } },
-              "else": { "properties": { "data": {
-                "properties": { "actions": { "items": { "$ref": "#/$defs/removeAction" } } }
-              } } }
+              "$ref": "#/$defs/mutationRecord"
             }
           ],
           "properties": {
-            "command": { "enum": ["install", "remove"] }, "event": { "const": "summary" },
-            "data": { "$ref": "#/$defs/mutationSummary" }
+            "command": {
+              "const": "remove"
+            },
+            "event": {
+              "const": "ignored"
+            },
+            "data": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
           }
         },
         {
-          "allOf": [{ "$ref": "#/$defs/mutationRecord" }],
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
           "properties": {
-            "command": { "const": "pack" }, "event": { "const": "plan" },
-            "data": { "$ref": "#/$defs/packPlan" }
+            "command": {
+              "const": "install"
+            },
+            "event": {
+              "const": "inspect_start"
+            },
+            "data": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
           }
         },
         {
-          "allOf": [{ "$ref": "#/$defs/mutationRecord" }],
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
           "properties": {
-            "command": { "const": "pack" }, "event": { "const": "result" },
-            "data": { "$ref": "#/$defs/packResult" }
+            "command": {
+              "const": "install"
+            },
+            "event": {
+              "enum": [
+                "inspect_ok",
+                "staged"
+              ]
+            },
+            "data": {
+              "$ref": "#/$defs/identity"
+            }
           }
         },
         {
-          "allOf": [{ "$ref": "#/$defs/mutationRecord" }],
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
           "properties": {
-            "command": { "const": "pack" }, "event": { "const": "summary" },
-            "data": { "$ref": "#/$defs/packSummary" }
+            "command": {
+              "const": "install"
+            },
+            "event": {
+              "const": "plan"
+            },
+            "data": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/installAction"
+              }
+            }
+          }
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
+          "properties": {
+            "command": {
+              "const": "remove"
+            },
+            "event": {
+              "const": "plan"
+            },
+            "data": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/removeAction"
+              }
+            }
+          }
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
+          "properties": {
+            "command": {
+              "const": "install"
+            },
+            "event": {
+              "const": "result"
+            },
+            "data": {
+              "$ref": "#/$defs/installAction"
+            }
+          }
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
+          "properties": {
+            "command": {
+              "const": "remove"
+            },
+            "event": {
+              "const": "result"
+            },
+            "data": {
+              "$ref": "#/$defs/removeAction"
+            }
+          }
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            },
+            {
+              "if": {
+                "properties": {
+                  "command": {
+                    "const": "install"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "data": {
+                    "properties": {
+                      "actions": {
+                        "items": {
+                          "$ref": "#/$defs/installAction"
+                        }
+                      }
+                    },
+                    "not": {
+                      "required": [
+                        "ignored"
+                      ]
+                    }
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "data": {
+                    "properties": {
+                      "actions": {
+                        "items": {
+                          "$ref": "#/$defs/removeAction"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "properties": {
+            "command": {
+              "enum": [
+                "install",
+                "remove"
+              ]
+            },
+            "event": {
+              "const": "summary"
+            },
+            "data": {
+              "$ref": "#/$defs/mutationSummary"
+            }
+          }
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
+          "properties": {
+            "command": {
+              "const": "pack"
+            },
+            "event": {
+              "const": "plan"
+            },
+            "data": {
+              "$ref": "#/$defs/packPlan"
+            }
+          }
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
+          "properties": {
+            "command": {
+              "const": "pack"
+            },
+            "event": {
+              "const": "result"
+            },
+            "data": {
+              "$ref": "#/$defs/packResult"
+            }
+          }
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
+          "properties": {
+            "command": {
+              "const": "pack"
+            },
+            "event": {
+              "const": "summary"
+            },
+            "data": {
+              "$ref": "#/$defs/packSummary"
+            }
           }
         },
         {
           "type": "object",
-          "required": ["command", "event", "error", "diagnostics"],
-          "not": { "anyOf": [{ "required": ["ok"] }, { "required": ["data"] }] },
+          "required": [
+            "command",
+            "event",
+            "error",
+            "diagnostics"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "ok"
+                ]
+              },
+              {
+                "required": [
+                  "data"
+                ]
+              }
+            ]
+          },
           "properties": {
-            "command": { "enum": ["install", "remove", "pack"] }, "event": { "const": "error" },
-            "error": { "$ref": "#/$defs/error" }, "diagnostics": { "$ref": "#/$defs/diagnostics" }
+            "command": {
+              "enum": [
+                "install",
+                "remove",
+                "pack",
+                "repo create",
+                "cache clean"
+              ]
+            },
+            "event": {
+              "const": "error"
+            },
+            "error": {
+              "$ref": "#/$defs/error"
+            },
+            "diagnostics": {
+              "$ref": "#/$defs/diagnostics"
+            }
+          }
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
+          "properties": {
+            "command": {
+              "const": "install"
+            },
+            "event": {
+              "enum": [
+                "resolution_plan",
+                "plan_updated"
+              ]
+            },
+            "data": {
+              "type": "object"
+            }
+          }
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
+          "properties": {
+            "command": {
+              "const": "repo create"
+            },
+            "event": {
+              "enum": [
+                "plan",
+                "result",
+                "summary"
+              ]
+            },
+            "data": {
+              "type": "object"
+            }
+          }
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
+          "properties": {
+            "command": {
+              "const": "cache clean"
+            },
+            "event": {
+              "enum": [
+                "plan",
+                "result",
+                "summary"
+              ]
+            },
+            "data": {
+              "type": "object"
+            }
           }
         }
       ]
     },
     "versionResponse": {
       "type": "object",
-      "required": ["name", "version"],
+      "required": [
+        "name",
+        "version"
+      ],
       "properties": {
-        "name": { "const": "dspm" },
-        "version": { "type": "string" }
+        "name": {
+          "const": "dspm"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "remote_packageId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*(?![\\s\\S])"
+    },
+    "remote_genericId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-]+(?![\\s\\S])"
+    },
+    "remote_dottedId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*(?![\\s\\S])"
+    },
+    "remote_version": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?![\\s\\S])"
+    },
+    "remote_sha512": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{128}(?![\\s\\S])"
+    },
+    "remote_text": {
+      "type": "object",
+      "required": [
+        "_"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "remote_assetPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 220,
+      "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\:?#\\u0000-\\u001f\\u007f]+(?:/[^/\\\\:?#\\u0000-\\u001f\\u007f]+)*(?![\\s\\S])"
+    },
+    "remote_assetPaths": {
+      "type": "object",
+      "required": [
+        "_"
+      ],
+      "additionalProperties": {
+        "$ref": "#/$defs/remote_assetPath"
+      }
+    },
+    "remote_dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/remote_packageId"
+        },
+        "version": {
+          "$ref": "#/$defs/remote_version"
+        }
+      }
+    },
+    "remote_singer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "interface",
+        "variant",
+        "level"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/remote_genericId"
+        },
+        "name": {
+          "$ref": "#/$defs/remote_text"
+        },
+        "interface": {
+          "$ref": "#/$defs/remote_dottedId"
+        },
+        "variant": {
+          "$ref": "#/$defs/remote_dottedId"
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "remoteManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repositoryFormatVersion",
+        "id",
+        "version",
+        "compatVersion",
+        "downloadUrl",
+        "downloadSha512",
+        "dependencies",
+        "singers"
+      ],
+      "properties": {
+        "repositoryFormatVersion": {
+          "const": 1
+        },
+        "id": {
+          "$ref": "#/$defs/remote_packageId"
+        },
+        "version": {
+          "$ref": "#/$defs/remote_version"
+        },
+        "compatVersion": {
+          "$ref": "#/$defs/remote_version"
+        },
+        "name": {
+          "$ref": "#/$defs/remote_text"
+        },
+        "description": {
+          "$ref": "#/$defs/remote_text"
+        },
+        "vendor": {
+          "$ref": "#/$defs/remote_text"
+        },
+        "license": {
+          "$ref": "#/$defs/remote_assetPaths"
+        },
+        "readme": {
+          "$ref": "#/$defs/remote_assetPaths"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "const": ""
+            },
+            {
+              "type": "string",
+              "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^\\s]+(?![\\s\\S])",
+              "format": "uri"
+            }
+          ]
+        },
+        "downloadUrl": {
+          "type": "string",
+          "pattern": "^[Hh][Tt][Tt][Pp][Ss]://[^\\s#]+(?![\\s\\S])",
+          "format": "uri"
+        },
+        "downloadSha512": {
+          "$ref": "#/$defs/remote_sha512"
+        },
+        "dependencies": {
+          "type": "array",
+          "maxItems": 1024,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/remote_dependency"
+          }
+        },
+        "singers": {
+          "type": "array",
+          "maxItems": 1024,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/remote_singer"
+          }
+        },
+        "deprecated": {
+          "type": "boolean"
+        },
+        "deprecationReason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "if": {
+        "required": [
+          "deprecated"
+        ],
+        "properties": {
+          "deprecated": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "deprecationReason"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "deprecationReason"
+          ]
+        }
+      }
+    },
+    "dl_counter": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "dl_version": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?![\\s\\S])"
+    },
+    "dl_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_-]+(?:/[A-Za-z0-9_-]+)*(?![\\s\\S])"
+        },
+        "version": {
+          "$ref": "#/$defs/dl_version"
+        }
+      }
+    },
+    "dl_taskError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "httpStatus": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        }
+      }
+    },
+    "dl_downloadProgress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "target",
+        "state",
+        "filePath",
+        "current",
+        "total",
+        "filesDone",
+        "filesTotal",
+        "progressVersion",
+        "operationId",
+        "taskId",
+        "transportId",
+        "package",
+        "sequence",
+        "attempt",
+        "sourceAttempt",
+        "authoritySourceId",
+        "generation",
+        "status",
+        "totalKnown",
+        "receivedBytes",
+        "resumedBytes",
+        "bytesPerSecond",
+        "etaSeconds",
+        "cacheStatus",
+        "networkPolicy"
+      ],
+      "properties": {
+        "phase": {
+          "const": "download"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "start",
+            "update",
+            "retry",
+            "source-switch",
+            "restart",
+            "cache-hit",
+            "done",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "filePath": {
+          "const": ""
+        },
+        "current": {
+          "$ref": "#/$defs/dl_counter"
+        },
+        "total": {
+          "$ref": "#/$defs/dl_counter"
+        },
+        "filesDone": {
+          "const": 0
+        },
+        "filesTotal": {
+          "const": 0
+        },
+        "progressVersion": {
+          "const": 1
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transportId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "package": {
+          "$ref": "#/$defs/dl_identity"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "attempt": {
+          "$ref": "#/$defs/dl_counter"
+        },
+        "sourceAttempt": {
+          "$ref": "#/$defs/dl_counter"
+        },
+        "authoritySourceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "generation": {
+          "$ref": "#/$defs/dl_counter"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "checking-cache",
+            "waiting-lock",
+            "connecting",
+            "downloading",
+            "retrying",
+            "discovering-sources",
+            "switching-source",
+            "verifying",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "totalKnown": {
+          "type": "boolean"
+        },
+        "receivedBytes": {
+          "$ref": "#/$defs/dl_counter"
+        },
+        "resumedBytes": {
+          "$ref": "#/$defs/dl_counter"
+        },
+        "bytesPerSecond": {
+          "type": "number",
+          "minimum": 0
+        },
+        "etaSeconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cacheStatus": {
+          "enum": [
+            "miss",
+            "hit",
+            "resume",
+            "shared",
+            "bypass"
+          ]
+        },
+        "networkPolicy": {
+          "enum": [
+            "restricted",
+            "unrestricted"
+          ]
+        },
+        "retryInMs": {
+          "$ref": "#/$defs/dl_counter"
+        },
+        "sourceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "previousSourceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string"
+        },
+        "error": {
+          "$ref": "#/$defs/dl_taskError"
+        },
+        "addressValidation": {
+          "enum": [
+            "direct",
+            "proxy-delegated",
+            "unrestricted"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "totalKnown": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "total": {
+                "const": 0
+              },
+              "etaSeconds": {
+                "const": null
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "start"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "queued"
+              },
+              "current": {
+                "const": 0
+              },
+              "attempt": {
+                "const": 0
+              },
+              "sourceAttempt": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "retry"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "retryInMs"
+            ],
+            "properties": {
+              "status": {
+                "const": "retrying"
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "retryInMs"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "source-switch"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "sourceId",
+              "previousSourceId",
+              "reason"
+            ],
+            "properties": {
+              "status": {
+                "const": "switching-source"
+              },
+              "reason": {
+                "minLength": 1
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "previousSourceId"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "switching-source"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "state": {
+                "const": "source-switch"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "restart"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "current": {
+                "const": 0
+              },
+              "resumedBytes": {
+                "const": 0
+              },
+              "generation": {
+                "minimum": 1
+              },
+              "status": {
+                "enum": [
+                  "connecting",
+                  "downloading"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "cache-hit"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "cacheStatus": {
+                "const": "hit"
+              },
+              "status": {
+                "const": "verifying"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "done"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "completed"
+              },
+              "totalKnown": {
+                "const": true
+              },
+              "etaSeconds": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "completed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "state": {
+                "const": "done"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "failed",
+                  "cancelled"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "error"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "error"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "failed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "failed"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "failed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "state": {
+                "const": "failed"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "cancelled"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "state": {
+                "const": "cancelled"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "retrying"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "state": {
+                "const": "retry"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "cancelled"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "cancelled"
+              },
+              "error": {
+                "properties": {
+                  "code": {
+                    "const": "CANCELLED"
+                  },
+                  "retryable": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "remoteInfo": {
+      "type": "object",
+      "required": [
+        "source",
+        "package",
+        "repository",
+        "manifestSha512",
+        "assetUrls",
+        "networkPolicy",
+        "repositoryConformance"
+      ],
+      "properties": {
+        "source": {
+          "const": "remote"
+        },
+        "package": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repositoryFormatVersion",
+            "id",
+            "version",
+            "compatVersion",
+            "downloadUrl",
+            "downloadSha512",
+            "dependencies",
+            "singers"
+          ],
+          "properties": {
+            "repositoryFormatVersion": {
+              "const": 1
+            },
+            "id": {
+              "$ref": "#/$defs/remote_packageId"
+            },
+            "version": {
+              "$ref": "#/$defs/remote_version"
+            },
+            "compatVersion": {
+              "$ref": "#/$defs/remote_version"
+            },
+            "name": {
+              "$ref": "#/$defs/remote_text"
+            },
+            "description": {
+              "$ref": "#/$defs/remote_text"
+            },
+            "vendor": {
+              "$ref": "#/$defs/remote_text"
+            },
+            "license": {
+              "$ref": "#/$defs/remote_assetPaths"
+            },
+            "readme": {
+              "$ref": "#/$defs/remote_assetPaths"
+            },
+            "url": {
+              "anyOf": [
+                {
+                  "const": ""
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^\\s]+(?![\\s\\S])",
+                  "format": "uri"
+                }
+              ]
+            },
+            "downloadUrl": {
+              "type": "string",
+              "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^\\s#]+(?![\\s\\S])",
+              "format": "uri"
+            },
+            "downloadSha512": {
+              "$ref": "#/$defs/remote_sha512"
+            },
+            "dependencies": {
+              "type": "array",
+              "maxItems": 1024,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/remote_dependency"
+              }
+            },
+            "singers": {
+              "type": "array",
+              "maxItems": 1024,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/remote_singer"
+              }
+            },
+            "deprecated": {
+              "type": "boolean"
+            },
+            "deprecationReason": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            }
+          },
+          "if": {
+            "required": [
+              "deprecated"
+            ],
+            "properties": {
+              "deprecated": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "deprecationReason"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "deprecationReason"
+              ]
+            }
+          }
+        },
+        "repository": {
+          "type": "object"
+        },
+        "assetUrls": {
+          "type": "object"
+        },
+        "manifestSha512": {
+          "$ref": "#/$defs/remote_sha512"
+        },
+        "networkPolicy": {
+          "enum": [
+            "restricted",
+            "unrestricted"
+          ]
+        },
+        "repositoryConformance": {
+          "enum": [
+            "strict-publication",
+            "client-url-override"
+          ]
+        }
+      }
+    },
+    "diagnosticDetails": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "warning",
+              "info",
+              "error"
+            ]
+          },
+          "identity": {
+            "$ref": "#/$defs/identity"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
       }
     }
   }

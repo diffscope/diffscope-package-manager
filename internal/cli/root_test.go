@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"github.com/diffscope/diffscope-package-manager/internal/testutil"
 	"os"
-	"os/exec"
+
 	"path/filepath"
 	"strings"
 	"testing"
@@ -68,26 +68,14 @@ func TestLocalSourcesAndJSON(t *testing.T) {
 		t.Fatal("conversion option retained")
 	}
 }
-func TestRemotePanicHelper(t *testing.T) {
-	if os.Getenv("DSPM_REMOTE_HELPER") != "1" {
-		return
-	}
-	args := []string{"--json", os.Getenv("DSPM_REMOTE_COMMAND"), "voice"}
-	_, _, _ = execute(t, args...)
-}
-func TestRemoteBranchesPanic(t *testing.T) {
-	for _, command := range []string{"install", "info"} {
-		t.Run(command, func(t *testing.T) {
-			cmd := exec.Command(os.Args[0], "-test.run=^TestRemotePanicHelper$")
-			cmd.Env = append(os.Environ(), "DSPM_REMOTE_HELPER=1", "DSPM_REMOTE_COMMAND="+command)
-			output, err := cmd.CombinedOutput()
-			if err == nil || !strings.Contains(string(output), "panic: not implemented") {
-				t.Fatal(string(output), err)
-			}
-			if strings.Contains(string(output), "FEATURE_NOT_IMPLEMENTED") || strings.Contains(string(output), `"error":`) {
-				t.Fatal("panic translated into a CLI result", string(output))
-			}
-		})
+func TestRemoteErrorsAreStructured(t *testing.T) {
+	t.Setenv("DSPM_REGISTRIES", "[]")
+	t.Setenv("DSPM_CACHE_DIR", filepath.Join(t.TempDir(), "cache"))
+	for _, command := range []string{"info", "install"} {
+		out, _, err := execute(t, "--json", "--packages-dir", filepath.Join(t.TempDir(), "packages"), command, "voice")
+		if err == nil || strings.Contains(out, "panic") || !strings.Contains(out, `"NOT_FOUND"`) {
+			t.Fatal(out, err)
+		}
 	}
 }
 

@@ -1,11 +1,15 @@
 package output
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/diffscope/diffscope-package-manager/internal/download"
+	"github.com/diffscope/diffscope-package-manager/internal/netpolicy"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,6 +28,8 @@ type Renderer struct {
 	DryRun              bool
 	Out, Err            io.Writer
 	Mutation            bool
+	ProgressMode        string
+	downloadProgressAt  map[string]time.Time
 	writeError          error
 	diagnostics         []string
 	style               *textStyles
@@ -39,11 +45,47 @@ type Renderer struct {
 
 func (r *Renderer) write(v any) {
 	if r.writeError == nil {
-		r.writeError = json.NewEncoder(r.Out).Encode(v)
+		// Redact presentation copies only. Internal manifests and cache keys keep
+		// their original bytes and exact URLs for verification and requests.
+		b, err := json.Marshal(v)
+		if err != nil {
+			r.writeError = err
+			return
+		}
+		var presentation any
+		decoder := json.NewDecoder(bytes.NewReader(b))
+		decoder.UseNumber()
+		if err = decoder.Decode(&presentation); err != nil {
+			r.writeError = err
+			return
+		}
+		r.writeError = json.NewEncoder(r.Out).Encode(redactValues(presentation))
 	}
+}
+
+var outputURL = regexp.MustCompile(`https?://[^\s"<>]+`)
+
+func redactValues(v any) any {
+	switch x := v.(type) {
+	case string:
+		return outputURL.ReplaceAllStringFunc(x, netpolicy.Redact)
+	case map[string]any:
+		for k, value := range x {
+			x[k] = redactValues(value)
+		}
+	case []any:
+		for i, value := range x {
+			x[i] = redactValues(value)
+		}
+	}
+	return v
 }
 func (r *Renderer) Observer(e packagemanager.Event) {
 	if e.Event == "progress" {
+		if p, ok := e.Data.(download.Progress); ok {
+			r.DownloadProgress(p)
+			return
+		}
 		if p, ok := e.Data.(packagemanager.Progress); ok {
 			r.Progress(p)
 		}
@@ -69,7 +111,7 @@ func (r *Renderer) Diagnostics(diagnostics []string) {
 		r.pauseProgress()
 	}
 	for _, d := range diagnostics {
-		fmt.Fprintln(r.Err, r.errorStyles().warning.Render("!")+" "+d)
+		fmt.Fprintln(r.Err, r.errorStyles().warning.Render("!")+" "+outputURL.ReplaceAllStringFunc(safeText(d), netpolicy.Redact))
 	}
 }
 func (r *Renderer) Finish(err error) error {
@@ -100,27 +142,41 @@ func (r *Renderer) Finish(err error) error {
 	}
 	if r.JSON {
 		if r.Mutation {
-			r.write(map[string]any{"command": r.Command, "event": "error", "error": payload, "diagnostics": r.diagnostics})
+			result := map[string]any{"command": r.Command, "event": "error", "error": payload, "diagnostics": r.diagnostics}
+			if e != nil && e.DiagnosticDetails != nil {
+				result["diagnosticDetails"] = e.DiagnosticDetails
+			}
+			r.write(result)
 		} else {
 			r.write(map[string]any{"ok": false, "command": r.Command, "error": payload, "diagnostics": r.diagnostics})
 		}
 	} else {
-		fmt.Fprintln(r.Err, r.errorStyles().failure.Render("✗ Error: "+err.Error()))
+		fmt.Fprintln(r.Err, r.errorStyles().failure.Render("✗ Error: "+outputURL.ReplaceAllStringFunc(safeText(err.Error()), netpolicy.Redact)))
 	}
 	return &ReportedError{err}
 }
 func (r *Renderer) Query(data any, diagnostics []string) error {
 	if r.JSON {
-		r.write(map[string]any{"ok": true, "command": r.Command, "data": data, "diagnostics": diagnostics})
+		result := map[string]any{"ok": true, "command": r.Command, "data": data, "diagnostics": diagnostics}
+		if info, ok := data.(packagemanager.RemoteInfo); ok {
+			result["diagnosticDetails"] = info.DiagnosticDetails
+		}
+		r.write(result)
 	} else {
 		r.Diagnostics(diagnostics)
 		switch v := data.(type) {
 		case packagemanager.Info:
 			r.info(v)
+		case packagemanager.RemoteInfo:
+			r.remoteInfo(v)
 		case []packagemanager.InstalledPackage:
 			r.List(v, []string{"id", "version"})
 		default:
-			r.writeError = fmt.Errorf("unsupported output")
+			b, err := json.MarshalIndent(v, "", "  ")
+			if err == nil {
+				_, err = fmt.Fprintln(r.Out, string(b))
+			}
+			r.writeError = err
 		}
 	}
 	return r.Finish(nil)
@@ -140,9 +196,48 @@ func ParseColumns(s string) ([]string, error) {
 			c = "compat-version"
 		}
 		if !allowed[c] {
-			return nil, fmt.Errorf("unknown list column %q", c)
+			return nil, fmt.Errorf("The list column %q is unknown.", c)
 		}
 		columns[i] = c
 	}
 	return columns, nil
+}
+func (r *Renderer) WriteError() error {
+	if r.writeError == nil && r.live != nil {
+		return r.live.outputError()
+	}
+	return r.writeError
+}
+func (r *Renderer) DownloadProgress(p download.Progress) {
+	if r.JSON {
+		r.write(map[string]any{"command": r.Command, "event": "progress", "data": p})
+		return
+	}
+	if r.ProgressMode == "none" {
+		return
+	}
+	r.ensureLiveProgress()
+	if r.live != nil {
+		r.live.download(p)
+		return
+	}
+	if r.downloadProgressAt == nil {
+		r.downloadProgressAt = map[string]time.Time{}
+	}
+	if p.State == "update" && time.Since(r.downloadProgressAt[p.TaskID]) < 2*time.Second {
+		return
+	}
+	r.downloadProgressAt[p.TaskID] = time.Now()
+	total := "unknown"
+	if p.TotalKnown {
+		total = fmt.Sprintf("%d", p.Total)
+	}
+	line := fmt.Sprintf("%s %s %d/%s bytes %.1f KiB/s [%s]", p.Target, p.Status, p.Current, total, p.BytesPerSecond/1024, p.CacheStatus)
+	if p.State == "source-switch" {
+		line += " source " + p.PreviousSourceID[:min(8, len(p.PreviousSourceID))] + " -> " + p.SourceID[:min(8, len(p.SourceID))]
+	}
+	_, err := fmt.Fprintln(r.Err, line)
+	if err != nil && r.writeError == nil {
+		r.writeError = err
+	}
 }

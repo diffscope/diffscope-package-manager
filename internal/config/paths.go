@@ -6,7 +6,7 @@ import (
 	"runtime"
 )
 
-// DefaultPackagesDir returns the default installation directory per OS rules.
+// Returns the default installation directory for the operating system.
 func DefaultPackagesDir() string {
 	switch runtime.GOOS {
 	case "windows":

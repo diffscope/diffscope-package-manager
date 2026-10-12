@@ -1,6 +1,6 @@
 # Installed Package Database
 
-This document specifies the SQLite index for the local Spec 2.4 package manager. The database schema version is `241`. The [reference DDL](sql/installed-packages.sql) defines all tables and constraints. The [CLI interoperability reference](interoperability.md) specifies the corresponding JSON representations.
+This document specifies the SQLite index for the local Spec 2.4 package manager. The database schema version is `242`. The [reference DDL](sql/installed-packages.sql) defines all tables and constraints. The [CLI interoperability reference](interoperability.md) specifies the corresponding JSON representations.
 
 ## Store Location
 
@@ -16,7 +16,7 @@ Only packages registered in the database are managed. Unregistered package direc
 
 ## Schema Identity and Initialization
 
-An existing database must have `PRAGMA user_version = 241`. Automatic migration is not implemented. An unrecognized existing database, including schema version `0`, is rejected. A database at `<packages-root>/packages.db` is also rejected.
+An existing database must have `PRAGMA user_version = 242`. Automatic migration is not implemented. An unrecognized existing database, including schema version `0`, is rejected. A database at `<packages-root>/packages.db` is also rejected.
 
 ```sql
 PRAGMA user_version;
@@ -32,7 +32,7 @@ The database contains six ordinary SQLite rowid tables. It has no `STRICT` table
 
 All `TEXT` columns use case-sensitive `BINARY` collation. `packages.id` declares the collation explicitly. Other columns use the SQLite default. All columns are `NOT NULL` except `package_texts.name`, `package_texts.description`, and `package_texts.vendor`.
 
-Package versions are normalized strings with four arbitrary-precision decimal integer components. Numeric version comparison must occur outside SQL text ordering. Singer levels use decimal text because SQLite integers cannot represent arbitrary-precision values.
+Package versions are normalized strings with four nonnegative decimal integer components. Each component must fit a Go `int`. Numeric version comparison must occur outside SQL text ordering. Singer levels use SQLite integers. The value `0` indicates unavailable metadata.
 
 ## Tables
 
@@ -75,7 +75,7 @@ Each row records a contribution identity from `desc.json`. Singer rows can also 
 | `category` | `TEXT` | The value is the extensible dotted category ID. |
 | `id` | `TEXT` | The value is the contribution ID within its category. |
 | `interface` | `TEXT` | The value is an extracted singer interface ID or `''` if unavailable. Opaque rows require `''`. |
-| `level` | `TEXT` | The value is an extracted positive singer level in decimal text or `''` if unavailable. Opaque rows require `''`. |
+| `level` | `INTEGER` | The value is an extracted positive singer level or `0` if unavailable. Opaque rows require `0`. |
 | `variant` | `TEXT` | The value is an extracted singer variant ID or `''` if unavailable. Opaque rows require `''`. |
 
 The primary key is `(package_id, package_version, category, id)`. The foreign key `(package_id, package_version)` references `packages(id, version)` with `ON DELETE CASCADE`. Different categories within a package can use the same contribution ID.
@@ -83,14 +83,14 @@ The primary key is `(package_id, package_version, category, id)`. The foreign ke
 The following SQL constraint prevents declaration fields from entering opaque rows.
 
 ```sql
-CHECK (category = 'singer' OR (interface = '' AND level = '' AND variant = ''))
+CHECK (category = 'singer' OR (interface = '' AND level = 0 AND variant = ''))
 ```
 
 Category and ID identify contributions in installed package summaries and contribution selectors for all categories. Singer summaries can additionally include interface, level, variant, and translated name. Opaque declaration files and category-owned entry fields are not parsed for indexing. Opaque contributions have no synthesized name or declaration expansion state.
 
-The empty string sentinel for unavailable singer fields is omitted from JSON summaries. A stored singer level is serialized as a JSON string in summaries and as a JSON number in full metadata. SQL text ordering and integer casts do not preserve arbitrary-precision level ordering.
+Unavailable singer fields are omitted from JSON summaries. Singer levels use JSON integers in summaries and full metadata.
 
-The singer declaration format requires `interface`, `level`, and `variant`. Indexing records these fields together after successful extraction. If required field extraction fails, all three columns contain `''`. Extractable singer names remain indexed. Index sentinels represent unavailable metadata rather than optional source fields. Full information responses report extraction failures through `metadataError`.
+The singer declaration format requires `interface`, `level`, and `variant`. Indexing records these fields together after successful extraction. If required field extraction fails, `interface` and `variant` contain `''`, and `level` contains `0`. Extractable singer names remain indexed. Index sentinels represent unavailable metadata rather than optional source fields. Full information responses report extraction failures through `metadataError`.
 
 ### `package_texts`
 
@@ -194,7 +194,7 @@ These operations match the `gofrs/flock` dependency. Other platforms require the
 Direct index and package file readers must follow this sequence.
 
 1. Acquire the shared store lock on the persistent lock file.
-2. Open the existing database in read-only mode, verify schema version `241`, and begin a SQLite read transaction.
+2. Open the existing database in read-only mode, verify schema version `242`, and begin a SQLite read transaction.
 3. Require no transaction subdirectories and no `transaction_commits` rows. An absent transactions directory is equivalent to an empty directory. If recovery is pending, close the read transaction and connection, release the lock, and invoke a dspm store query. Restart the sequence after recovery. Pending cleanup or missing recovery evidence requires deferred direct access or use of the CLI result.
 4. Read all required tables and access the associated package files while retaining the store lock.
 5. Close the read transaction and database connection before releasing the store lock.
@@ -219,16 +219,6 @@ Recovery applies the following rules under exclusive access.
 An uncertain database commit is checked using a fresh database connection. If the commit state cannot be determined, transaction evidence remains for subsequent recovery. Committed cleanup failures produce diagnostics and can coexist with successful command completion. Subsequent store access retries cleanup.
 
 The protocol coordinates cooperating processes and process interruption. It does not provide atomic visibility to runtimes that ignore the store lock or guarantee full atomicity across power loss. Package mutations require the complete filesystem and database protocol. Direct SQL inserts or deletions do not implement that protocol.
-
-## Schema Migration
-
-[migrate-240-to-241.sql](sql/migrate-240-to-241.sql) performs the explicit migration from schema version `240` to `241`. No public migration command or automatic version conversion is implemented. Spec 2.3 databases are unsupported.
-
-The migration requires completed recovery, an exclusive store lock, and a verified SQLite backup. Recovery requiring schema version `240` must complete with an executable supporting that schema before migration. The lock must remain held throughout backup, migration, and verification.
-
-The script requires `foreign_keys = ON`, begins an immediate transaction, and rejects any source version other than `240`. The script retains packages, dependencies, package translations, contribution identities, and commit markers. Singer declaration fields and translations are unchanged. Opaque contribution names are removed, and opaque interface, level, and variant fields become empty strings. The two opaque-category `CHECK` constraints are added. Package directories and contents are unchanged.
-
-The caller must stop at the first SQL error and roll back. A script execution API that continues after errors is unsuitable. After successful execution, verification requires schema version `241`, `PRAGMA integrity_check` returning `ok`, no `PRAGMA foreign_key_check` rows, unchanged retained records, and unchanged package contents. The backup must remain available until verification completes. Subsequent operations require an executable supporting schema version `241`.
 
 ## Read Queries
 

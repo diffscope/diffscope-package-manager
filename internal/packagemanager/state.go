@@ -2,8 +2,8 @@ package packagemanager
 
 import (
 	"fmt"
-	"github.com/diffscope/diffscope-package-manager/internal/dependency"
 	"github.com/diffscope/diffscope-package-manager/packagedatabase"
+	dependency "github.com/diffscope/diffscope-package-manager/packagedependency"
 	"github.com/diffscope/diffscope-package-manager/packageinfo"
 )
 
@@ -29,14 +29,14 @@ func resolve(records []packagedatabase.Record, selector packageinfo.Selector) (p
 		}
 	}
 	if len(matches) == 0 {
-		return packagedatabase.Record{}, failure("NOT_FOUND", fmt.Errorf("package %s is not installed", selector.ID))
+		return packagedatabase.Record{}, failure("NOT_FOUND", fmt.Errorf("The package %s is not installed.", selector.ID))
 	}
 	if len(matches) > 1 {
 		ids := []string{}
 		for _, p := range matches {
 			ids = append(ids, p.String())
 		}
-		return packagedatabase.Record{}, &Error{Code: "AMBIGUOUS_VERSION", Message: "multiple versions are installed; specify a version", Details: ids}
+		return packagedatabase.Record{}, &Error{Code: "AMBIGUOUS_VERSION", Message: "Multiple versions are installed. An explicit version is required.", Details: ids}
 	}
 	return matches[0], nil
 }

@@ -1,4 +1,4 @@
-// Package packagedatabase owns the SQLite index. ORM handles never escape this package.
+// Package packagedatabase provides the SQLite index. ORM handles remain private to this package.
 package packagedatabase
 
 import (
@@ -14,7 +14,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-const SchemaVersion = 241
+const SchemaVersion = 242
 
 type Store struct {
 	db       *gorm.DB
@@ -24,7 +24,7 @@ type ContributionIndex struct {
 	Category  string           `json:"category"`
 	ID        string           `json:"id"`
 	Interface string           `json:"interface,omitempty"`
-	Level     string           `json:"level,omitempty"`
+	Level     int64            `json:"level,omitempty"`
 	Variant   string           `json:"variant,omitempty"`
 	Name      packageinfo.Text `json:"name,omitempty"`
 }
@@ -48,7 +48,7 @@ func Index(p packageinfo.PackageManifest, hash, dir string, at int64) Record {
 		if c.Category == "singer" && c.SingerDeclaration != nil {
 			index.Name = c.Name
 			if c.ModuleMetadata != nil {
-				index.Interface, index.Level, index.Variant = c.Interface, c.Level.String(), c.Variant
+				index.Interface, index.Level, index.Variant = c.Interface, c.Level, c.Variant
 			}
 		}
 		r.Contributions = append(r.Contributions, index)
@@ -56,7 +56,8 @@ func Index(p packageinfo.PackageManifest, hash, dir string, at int64) Record {
 	return r
 }
 
-// Open never initializes an existing unrecognized database. Missing read stores are empty.
+// Opens the requested index or returns an error for an unrecognized existing schema.
+// Returns nil without error for an absent read-only index.
 func Open(filename string, create bool) (*Store, error) {
 	_, err := os.Stat(filename)
 	missing := os.IsNotExist(err)
@@ -104,7 +105,7 @@ func Open(filename string, create bool) (*Store, error) {
 			return nil, err
 		}
 	} else if version != SchemaVersion {
-		return nil, fmt.Errorf("unsupported package database schema %d (expected %d)", version, SchemaVersion)
+		return nil, fmt.Errorf("The package database schema %d is unsupported. The required schema is %d.", version, SchemaVersion)
 	}
 	failed = false
 	return s, nil
@@ -123,7 +124,7 @@ func (s *Store) initialize() error {
 	statements := []string{
 		`CREATE TABLE packages (id TEXT COLLATE BINARY NOT NULL, version TEXT NOT NULL, compat_version TEXT NOT NULL, hash TEXT NOT NULL, installed_at INTEGER NOT NULL, directory TEXT NOT NULL UNIQUE, PRIMARY KEY(id,version))`,
 		`CREATE TABLE dependencies (package_id TEXT NOT NULL, package_version TEXT NOT NULL, id TEXT NOT NULL, version TEXT NOT NULL, PRIMARY KEY(package_id,package_version,id), FOREIGN KEY(package_id,package_version) REFERENCES packages(id,version) ON DELETE CASCADE)`,
-		`CREATE TABLE contributions (package_id TEXT NOT NULL, package_version TEXT NOT NULL, category TEXT NOT NULL, id TEXT NOT NULL, interface TEXT NOT NULL, level TEXT NOT NULL, variant TEXT NOT NULL, PRIMARY KEY(package_id,package_version,category,id), CHECK(category='singer' OR (interface='' AND level='' AND variant='')), FOREIGN KEY(package_id,package_version) REFERENCES packages(id,version) ON DELETE CASCADE)`,
+		`CREATE TABLE contributions (package_id TEXT NOT NULL, package_version TEXT NOT NULL, category TEXT NOT NULL, id TEXT NOT NULL, interface TEXT NOT NULL, level INTEGER NOT NULL, variant TEXT NOT NULL, PRIMARY KEY(package_id,package_version,category,id), CHECK(category='singer' OR (interface='' AND level=0 AND variant='')), FOREIGN KEY(package_id,package_version) REFERENCES packages(id,version) ON DELETE CASCADE)`,
 		`CREATE TABLE package_texts (package_id TEXT NOT NULL, package_version TEXT NOT NULL, language TEXT NOT NULL, name TEXT, description TEXT, vendor TEXT, PRIMARY KEY(package_id,package_version,language), FOREIGN KEY(package_id,package_version) REFERENCES packages(id,version) ON DELETE CASCADE)`,
 		`CREATE TABLE contribution_names (package_id TEXT NOT NULL, package_version TEXT NOT NULL, category TEXT NOT NULL, contribution_id TEXT NOT NULL, language TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY(package_id,package_version,category,contribution_id,language), CHECK(category='singer'), FOREIGN KEY(package_id,package_version,category,contribution_id) REFERENCES contributions(package_id,package_version,category,id) ON DELETE CASCADE)`,
 		`CREATE TABLE transaction_commits (id TEXT PRIMARY KEY NOT NULL)`,
@@ -144,7 +145,10 @@ type packageRow struct {
 	InstalledAt                                 int64
 }
 type dependencyRow struct{ PackageID, PackageVersion, ID, Version string }
-type contributionRow struct{ PackageID, PackageVersion, Category, ID, Interface, Level, Variant string }
+type contributionRow struct {
+	PackageID, PackageVersion, Category, ID, Interface, Variant string
+	Level                                                       int64
+}
 type textRow struct {
 	PackageID, PackageVersion, Language string
 	Name, Description, Vendor           *string
@@ -187,7 +191,7 @@ func (s *Store) Records() ([]Record, error) {
 		owner := func(id, version string) (*Record, error) {
 			i, ok := indexes[id+"="+version]
 			if !ok {
-				return nil, fmt.Errorf("orphaned package index")
+				return nil, fmt.Errorf("The package index contains an orphaned record.")
 			}
 			return &result[i], nil
 		}
@@ -244,7 +248,7 @@ func (s *Store) Records() ([]Record, error) {
 				}
 			}
 			if !found {
-				return fmt.Errorf("orphaned contribution name")
+				return fmt.Errorf("The contribution name has no owning contribution.")
 			}
 		}
 		return nil
@@ -322,7 +326,7 @@ func writeRecord(tx *gorm.DB, r Record) error {
 }
 func (s *Store) Committed(id string) (bool, error) {
 	if s == nil {
-		return false, fmt.Errorf("transaction journal has no package database")
+		return false, fmt.Errorf("The transaction journal has no associated package database.")
 	}
 	var count int64
 	err := s.db.Table("transaction_commits").Where("id=?", id).Count(&count).Error
@@ -338,14 +342,15 @@ func (s *Store) PendingCommits() ([]string, error) {
 	return ids, err
 }
 
-// ConfirmCommitted checks a possibly uncertain COMMIT on a fresh connection.
+// Returns whether a fresh database connection contains the transaction commit marker.
+// Returns an error if the database or commit state is unavailable.
 func (s *Store) ConfirmCommitted(id string) (bool, error) {
 	fresh, err := Open(s.filename, false)
 	if err != nil {
 		return false, err
 	}
 	if fresh == nil {
-		return false, fmt.Errorf("database disappeared while confirming commit")
+		return false, fmt.Errorf("The package database is missing during commit confirmation.")
 	}
 	defer fresh.Close()
 	return fresh.Committed(id)

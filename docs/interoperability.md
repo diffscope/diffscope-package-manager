@@ -1,13 +1,12 @@
 # dspm CLI Interoperability
 
-This document specifies the implemented local CLI output for DiffScope package Spec 2.4. Package format versions, executable versions, and database schema versions are independent identifiers. The database schema version is `241`. CLI responses have no protocol version field.
+This document specifies local and remote CLI output for DiffScope package Spec 2.4. Package format versions, executable versions, and database schema versions are independent identifiers. The database schema version is `242`. CLI responses have no protocol version field.
 
 The following references define the associated formats and storage constraints.
 
 - The [CLI output JSON Schema](schemas/cli-output.schema.json) specifies individual output values using JSON Schema Draft 2020-12.
 - The [installed database reference](installed-database.md) specifies index fields, store locking, recovery, and consistent reads.
-- The [SQLite reference DDL](sql/installed-packages.sql) defines an empty database with schema version `241`.
-- The [schema migration SQL](sql/migrate-240-to-241.sql) defines the explicit migration from schema version `240` to `241`.
+- The [SQLite reference DDL](sql/installed-packages.sql) defines an empty database with schema version `242`.
 
 ## Command Selection
 
@@ -27,9 +26,15 @@ dspm --json pack ./voice --output ./voice.dspk
 
 | Command | Output format | Successful payload |
 | --- | --- | --- |
+| `info <selector>` | The command returns one JSON response. | `data` contains a `RemoteInfo` object. |
+| `cache dir` | The command returns one JSON response. | `data` contains `directory`. |
+| `cache info` | The command returns one JSON response. | `data` contains cache statistics. |
 | `info --file <archive>` | The command returns one JSON response. | `data` contains an `Info` object with `file` and `hash`. |
 | `info --installed <selector>` | The command returns one JSON response. | `data` contains an `Info` object with `installation`. |
 | `list` | The command returns one JSON response. | `data` contains an array of `InstalledPackage` objects. |
+| `install <selector>...` | The command returns NDJSON records. | The stream contains remote preparation and installation events. |
+| `repo create` | The command returns NDJSON records. | The stream contains submission generation events. |
+| `cache clean` | The command returns NDJSON records. | The stream contains cache cleanup events. |
 | `install --file <archive>...` | The command returns NDJSON records. | The stream contains installation events. |
 | `remove <selector>...` | The command returns NDJSON records. | The stream contains removal events. |
 | `pack <directory>` | The command returns NDJSON records. | The stream contains packing events. |
@@ -37,7 +42,7 @@ dspm --json pack ./voice --output ./voice.dspk
 
 `ls` is an alias for `list`. `rm` and `uninstall` are aliases for `remove`. The `command` field contains the canonical command name for these aliases.
 
-`info --file` and `info --installed` are mutually exclusive. `install` and `info` select an unimplemented remote operation if their local source flag is absent. That operation terminates with `panic("not implemented")` and emits no structured response. Help output and root invocation without `--version` remain text output with `--json` enabled.
+`info --file` and `info --installed` are mutually exclusive. `info` and `install` use remote sources if no local source flag is present. `install --file` also obtains missing dependencies remotely. `install --file-only` restricts acquisition to explicit archives and installed dependencies. Help output and root invocation without `--version` use text output even with `--json` enabled.
 
 Integrations must place `--json` before subcommands and arguments. Errors that prevent JSON flag parsing can produce text output. Argument errors can identify the selected command or the root command `dspm`.
 
@@ -67,7 +72,7 @@ Object schemas permit additional properties for additive extensions. Integration
 
 ## Query Envelopes
 
-A successful query contains `ok`, `command`, `data`, and `diagnostics`. `ok` is `true`. `command` is `info` or `list`. `data` has the command-specific type. An empty list result is `[]`.
+A successful query contains `ok`, `command`, `data`, and `diagnostics`. `ok` is `true`. `command` is `info`, `list`, `cache dir`, or `cache info`. `data` has the command-specific type. An empty list result is `[]`.
 
 ```json
 {"ok":true,"command":"list","data":[],"diagnostics":null}
@@ -95,15 +100,15 @@ The root version response contains no query envelope. The executable version is 
 | Package ID | The string contains ASCII segments separated by `/`. Each segment contains at least one letter, digit, underscore, or hyphen. Comparison is case-sensitive. |
 | Contribution ID | The string contains one package ID segment without `/`. |
 | Category, interface, or variant ID | The string contains contribution ID segments separated by `.`. Category IDs are extensible and case-sensitive. |
-| Package version | The string contains four decimal integer components, such as `"1.2.0.0"`. Components have arbitrary precision and no leading zeros except the value `0`. |
+| Package version | The string contains four nonnegative decimal integer components, such as `"1.2.0.0"`. Each component must fit a Go `int` and must have no leading zeros except the value `0`. |
 | `Text` | The object maps language keys to strings and includes the default key `_`. Extracted shorthand strings become `{"_":"value"}`. Empty strings and all language keys are retained. |
 | `FilePaths` | The object has the `Text` representation. Every value is a nonempty, fully qualified, lexically normalized host path to a regular file inside the package. |
 | `Dependency` | The object contains a package `id` and normalized target `version`. The target does not identify a resolved provider version. |
 | Content hash | The string contains 128 lowercase hexadecimal characters representing the [content tree digest](installed-database.md#content-hash). |
 
-Package selectors use `id=version`. Contribution selectors use `id=version:category/contribution-id`. A selector can omit `=version` if exactly one version of that package is installed. Multiple installed versions produce `AMBIGUOUS_VERSION` if the version is omitted. Removal accepts package selectors only.
+Package selectors use `id=version`. Contribution selectors use `id=version:category/contribution-id`. An installed selector can omit `=version` if exactly one version of that package is installed. Multiple installed versions produce `AMBIGUOUS_VERSION` if the version is omitted. Removal accepts package selectors only.
 
-Version comparison uses numeric comparison of the four components. Lexicographic string comparison and conversion to fixed-width integers do not preserve version semantics. Arbitrary declaration numbers and full contribution `level` values can exceed the exact integer range of JavaScript numbers. Integrations requiring exact values must use an arbitrary-precision JSON number representation.
+Version comparison uses numeric comparison of the four integer components. Lexicographic string comparison does not preserve version order. Arbitrary numbers retained in declaration bodies can exceed the exact integer range of JavaScript numbers. Integrations requiring exact values must use an arbitrary-precision JSON number representation.
 
 ## Installed Package Payload
 
@@ -126,7 +131,7 @@ Version comparison uses numeric comparison of the four components. Lexicographic
 
 A singer contribution has category ID exactly equal to `singer`. An opaque contribution has any other category ID, including `inference` or `singer.extra`.
 
-`ContributionSummary` contains required `category` and `id` fields. A singer summary can additionally contain `name` (`Text`), `interface` (string), `variant` (string), and `level` (decimal integer string). An opaque summary contains only `category` and `id`. Summaries contain no declaration path, declaration body, or singer resource fields.
+`ContributionSummary` contains required `category` and `id` fields. A singer summary can additionally contain `name` (`Text`), `interface` (string), `variant` (string), and `level` (positive integer). An opaque summary contains only `category` and `id`. Summaries contain no declaration path, declaration body, or singer resource fields.
 
 Contribution summaries are database projections rather than module declarations. Omission of indexed fields indicates unavailable extracted metadata and does not change the required fields of the package format.
 
@@ -170,7 +175,7 @@ The database stores package name, description, and vendor for installed package 
 | `expanded` | The field is required for singer and absent for opaque contributions. It indicates successful singer declaration expansion. |
 | `name` | The field is optional and available only for singer. An absent singer name defaults to `{"_": id}` after successful expansion. An invalid singer name remains unavailable. |
 | `interface`, `variant` | Both fields are required in a successful singer metadata result and contain extracted dotted IDs. They are absent if `metadataError` is present. |
-| `level` | The field is required in a successful singer metadata result and contains a positive JSON integer with arbitrary precision. It is absent if `metadataError` is present. |
+| `level` | The field is required in a successful singer metadata result and contains a positive signed 64-bit JSON integer. It is absent if `metadataError` is present. |
 | `metadataError` | The field is required if singer variable expansion or required common field extraction fails. It contains a nonempty error string and is absent from successful singer metadata results and opaque contributions. |
 | `singer` | The field is available after successful singer expansion. It contains optional `avatar`, `background`, and `demoAudio` (`Text`) and can be `{}`. |
 
@@ -190,7 +195,7 @@ Failed variable expansion retains the raw declaration in `manifest`, sets `expan
 
 A successful information query can include `metadataError` and `ok: true`. Mutation diagnostics report the same extraction failure without a command failure event.
 
-Full singer `level` uses a JSON number. Indexed summaries and the database use decimal text. Full `level: 2`, summary `level: "2"`, and SQL `level = '2'` represent the same integer.
+Singer `level` uses the same integer value in declarations, full metadata, indexed summaries, and remote manifests. SQLite stores the value as `INTEGER`. Source values require integer literals without a fractional part or exponent.
 
 ### Selectors and Path Contexts
 
@@ -212,14 +217,14 @@ Mutations emit `progress` records on stdout in JSON mode, including redirected o
 
 | Field | Constraint |
 | --- | --- |
-| `phase` | The value is `inspect`, `resolve`, `extract`, `verify`, `commit`, `check`, or `pack`. |
+| `phase` | The value is `inspect`, `resolve`, `extract`, `verify`, `commit`, `check`, `pack`, `metadata`, `archive-verify`, or `lock-wait`. The separate `download` phase uses download progress v1. |
 | `target` | The value identifies the archive argument for inspection, package selector for extraction or verification or packing, package root for resolution or commit, or source directory for checking. |
 | `state` | The value is `start`, `update`, or `done`. `done` indicates successful completion of that phase. |
 | `filePath` | The value is the current package-relative file path using `/`. The value is `""` if no file is selected. |
 | `current`, `total` | The values are processed and expected uncompressed file bytes for the phase. Directories and ZIP overhead are excluded. |
 | `filesDone`, `filesTotal` | The values are successfully processed and expected regular file counts. Empty files are included. |
 
-All progress fields are required. Counters are nonnegative integers. A `start` record initializes counters to zero. A subsequent update can supply known totals. Zero `total` indicates an unknown total or absence of byte processing. Percentage calculation requires a positive total.
+The phase progress fields in this table are required. Download progress has the separate representation specified below. Counters are nonnegative integers. A `start` record initializes counters to zero. A subsequent update can supply known totals. Zero `total` indicates an unknown total or absence of byte processing. Percentage calculation requires a positive total.
 
 Counters apply to the current phase and target rather than the complete batch. Inspection, extraction, verification, and packing use streaming byte counts with intermediate updates for large files. Resolution, directory checking, and commit use zero counters.
 
@@ -246,7 +251,7 @@ Progress can occur between application events. Reaching byte totals does not est
 | `result` | `data` contains an installation action. |
 | `summary` | `data` contains a `MutationSummary`. |
 
-Excluding progress records, successful ordering is `inspect_start`, one `inspect_ok` per input, `plan`, zero or more `staged` records, one `result` per action, and `summary`. Results follow successful batch commit processing. `skip` actions have no staged package. Dry runs emit the plan, results, and summary without staging or commit.
+For direct local installation without remote acquisition, successful ordering excluding progress records is `inspect_start`, one `inspect_ok` per input, `plan`, zero or more `staged` records, one `result` per action, and `summary`. Results follow successful batch commit processing. `skip` actions have no staged package. Dry runs emit the plan, results, and summary without staging or commit.
 
 ### Removal Events
 
@@ -266,7 +271,7 @@ The following NDJSON example contains removal application events. Progress recor
 
 ### Actions and Mutation Summaries
 
-`Action` contains required `package` (`Identity`) and `action`. Installation actions use `install`, `overwrite`, or `skip` and include required `file` and `hash`. `file` preserves the archive argument. `hash` contains the inspected content hash. Removal actions use `remove` or `cascade` and omit `file` and `hash`.
+`Action` contains required `package` (`Identity`) and `action`. Installation actions use `install`, `overwrite`, or `skip` and include required `file` and `hash`. `file` identifies the inspected archive. Local installation preserves the supplied archive argument. Remote installation can return a managed cache path or temporary archive path. `hash` contains the inspected content hash. Removal actions use `remove` or `cascade` and omit `file` and `hash`.
 
 `MutationSummary` contains required `actions` and `dryRun`. `actions` is the complete action array. `dryRun` is a boolean for both installation and removal. Optional `diagnostics` and removal `ignored` are nonempty string arrays.
 
@@ -300,7 +305,7 @@ A reported mutation error is terminal and has no subsequent successful summary. 
 {"command":"install","event":"error","error":{"code":"INVALID_PACKAGE","message":"The package ID is invalid."},"diagnostics":null}
 ```
 
-`error` contains required `code` and `message` and optional `details`. `message` and diagnostic strings have no machine-stable substructure. Integrations must classify errors by `code` rather than message parsing. `details` has no common shape except the documented ambiguity payload.
+`error` contains required `code` and `message` and optional `details`. `message` and diagnostic strings have no machine-stable substructure. Integrations must classify errors by `code` rather than message parsing. `details` is code-specific. The ambiguity payload contains canonical selectors. Remote failures may include transfer attempts, source proofs, rejected candidates, or metadata differences.
 
 Example messages illustrate error conditions and do not specify exact diagnostic text.
 
@@ -330,3 +335,86 @@ The [reference DDL](sql/installed-packages.sql) creates an empty database. It ne
 ## Implementation References
 
 [output.go](../internal/cli/output/output.go) defines response rendering. [progress.go](../internal/cli/output/progress.go) defines progress coalescing. [commands.go](../internal/cli/commands/commands.go) and [root.go](../internal/cli/root.go) define command selection and argument error handling. [internal/packagemanager](../internal/packagemanager) defines payloads and event emission. [manifest.go](../packageinfo/manifest.go) and [singer.go](../packageinfo/singer.go) define metadata extraction. [database.go](../packagedatabase/database.go) defines index storage.
+
+## Remote query payloads
+
+`RemoteInfo` differs from local `Info`. Its `package` is an OVCPR v1 manifest rather than a loaded `PackageManifest`. It contains repository summaries and archive references without local declaration bodies, runtime level, or installation records.
+
+| Field | Constraint |
+| --- | --- |
+| `source` | The value is `remote`. |
+| `package` | The value is the verified remote manifest. |
+| `repository` | The value records source identity, URL, priority, revision, and root digest. |
+| `manifestSha512` | The value is the digest of the manifest's exact bytes. |
+| `assetUrls` | The object maps `license` and `readme` to complete language maps of asset URLs. |
+| `networkPolicy` | The value identifies the effective network policy. |
+| `repositoryConformance` | The value identifies the policy's repository conformance scope. |
+| `addressValidation` | The value identifies direct address validation or proxy delegation. |
+
+Remote contribution selectors support only `singer` and filter `package.singers` to the requested singer. Other categories return `UNSUPPORTED_REMOTE_CONTRIBUTION`. Deprecation produces string diagnostics and envelope `diagnosticDetails` without changing version selection.
+
+Source records contain `sourceId`, `registryUrl`, `priority`, `repositoryRevision`, and `rootIndexSha512`. Optional fields include `sourceName` and `freshness`. Source identity and authority remain distinct from the source that supplies archive bytes. Presentation URLs are redacted and must not be reused as exact download URLs.
+
+## Remote installation events
+
+Remote preparation emits `resolution_plan` after complete metadata and dependency validation. Its payload contains `operationId`, `installedSnapshotFingerprint`, `verificationScope`, `sources`, `sourceOrder`, `roots`, `packages`, `acquisitionDecisions`, `effectiveEdges`, `pendingArchiveChecks`, `networkPolicy`, and `repositoryConformance`.
+
+Each planned package contains its identity, compatibility version, dependencies, and `sourceKind`. Remote candidates additionally record `authoritySourceId`, `manifestSha512`, and `downloadSha512`. Local and installed candidates record available `contentTreeSha512` values. Acquisition decisions record the requester, required dependency, selected provider, and acquisition source. Effective edges describe the final dependency graph.
+
+Remote dry runs emit the resolution plan followed by a successful summary. The summary contains `dryRun: true`, `verification: metadata-only`, `actions: []`, `plannedActions`, `pendingArchiveChecks`, and `commitOutcome: not-started`. These fields do not establish archive validity.
+
+Normal preparation downloads and verifies required archives before local installation events. A concurrent store change can produce `plan_updated` and a new resolution plan. Completed transfers remain reusable. Every announced task has a terminal record before the command summary or error.
+
+The successful remote summary includes installation actions, source records, `downloadStats`, `diagnosticDetails`, string diagnostics, `commitOutcome`, and policy fields. Transfer statistics contain actual source IDs, source history, received byte counts, attempts, rejected candidates, cache status, verified archive digests, and source proofs. Each source proof records the repository revision, root digest, manifest digest, and archive digest. Completed transfers contribute once even if a later plan no longer requires their archives.
+
+## Download progress v1
+
+Download progress uses `phase: download` and `progressVersion: 1`. It has the following fields in addition to the common progress target and counters.
+
+| Fields | Constraint |
+| --- | --- |
+| `operationId`, `taskId`, `transportId`, `package` | The values identify the invocation, logical task, transfer, and package identity. |
+| `sequence` | The integer increases across download records in the operation. |
+| `state` | The value is `start`, `update`, `cache-hit`, `retry`, `restart`, `source-switch`, `done`, `failed`, or `cancelled`. |
+| `status` | The value describes the current transfer activity. |
+| `attempt`, `sourceAttempt`, `generation` | The integers identify the overall attempt, source attempt, and valid-prefix generation. |
+| `current`, `total`, `totalKnown` | The fields record the valid prefix and the known or unknown expected byte count. |
+| `receivedBytes`, `resumedBytes` | The integers record network bytes and reused prefix bytes. |
+| `bytesPerSecond`, `etaSeconds` | The fields record rolling throughput and nullable remaining time. |
+| `cacheStatus` | The value identifies cache use or cache recovery. |
+| `authoritySourceId`, `sourceId`, `host` | The values distinguish metadata authority from the actual transfer source. |
+| `previousSourceId`, `reason`, `retryInMs` | The optional fields describe source changes, restarts, or retry delays. |
+| `networkPolicy`, `addressValidation` | The fields identify the effective network and address validation scope. |
+| `error` | The optional object contains terminal failure details. |
+
+Each announced task has exactly one terminal state: `done`, `failed`, or `cancelled`. A restart begins a new generation, so `current` can decrease. `receivedBytes` includes repeated bytes and can exceed the archive size. Percentage calculation requires `totalKnown: true` and a positive `total`. `done` verifies the file digest. Archive verification and store commit remain separate phases.
+
+Updates are coalesced to approximately ten per second per active task with a soft global limit of forty per second. Boundary events and the first received-byte observation are retained. Integrations must not depend on an exact event rate.
+
+## Repository and cache payloads
+
+`repo create` emits `plan`, an optional `result`, and `summary`. The plan and summary contain `identity`, `manifestPath`, `downloadSha512`, `assets`, `changed`, `dryRun`, and `remoteVerified`. Asset mappings contain package-relative and repository-relative paths. `remoteVerified` is `false` because generation does not contact the publication URL. Normal result records contain `status: created` or `status: unchanged` and the manifest path. Dry runs omit the result.
+
+`cache dir` returns an object containing `directory`. `cache info` returns `directory`, `files`, `bytes`, and `active`. File and byte maps use managed cache area names. An absent cache returns empty maps and `active: false`.
+
+`cache clean` emits `plan`, an optional `result`, and `summary`. Each payload contains `scope`, `removedFiles`, `freedBytes`, and `dryRun`. Dry runs report prospective counts and omit the result. Scope selection and lifecycle constraints are specified in the [remote operations reference](remote-operations.md).
+
+## Remote diagnostics
+
+Structured diagnostics contain `code`, `severity`, and `message`, with identity and source fields if applicable. Deprecation uses `PACKAGE_DEPRECATED`. Rejected replicas use `DOWNLOAD_SOURCE_REJECTED`. Messages are presentation text rather than machine identifiers.
+
+| Code | Condition |
+| --- | --- |
+| `INVALID_REMOTE_MANIFEST`, `UNSUPPORTED_REPOSITORY_FORMAT` | Remote metadata or its format is invalid or unsupported. |
+| `REPOSITORY_INCONSISTENT` | Index and manifest identities or raw-byte digest links remain inconsistent. |
+| `SOURCE_IDENTITY_CONFLICT` | Selected sources disagree on immutable package semantics. |
+| `DOWNLOAD_POLICY_VIOLATION` | A URL, destination address, or redirect violates the effective policy. |
+| `DOWNLOAD_FAILED`, `DOWNLOAD_SOURCES_EXHAUSTED` | Archive acquisition fails or permitted sources are exhausted. |
+| `DOWNLOAD_PROTOCOL_ERROR`, `DOWNLOAD_HASH_MISMATCH` | HTTP representation or archive file integrity is invalid. |
+| `DOWNLOAD_TIMEOUT`, `RATE_LIMITED` | A time limit expires or the permitted automatic wait is exceeded. |
+| `PACKAGE_METADATA_MISMATCH`, `NONPORTABLE_METADATA` | Archive metadata disagrees with publication metadata or depends on the virtual root. |
+| `DISK_FULL` | Available storage is insufficient or a write reports a full device. |
+| `INVALID_CACHE_DIRECTORY`, `CACHE_BUSY` | Cache identity, boundaries, or lifecycle access are invalid or unavailable. |
+| `INPUT_CHANGED`, `STORE_CHANGED` | Archive input or installed state changes during preparation. |
+| `REPOSITORY_RECOVERY_REQUIRED` | Repository publication evidence requires recovery or maintainer intervention. |
+| `UNSUPPORTED_REMOTE_CONTRIBUTION` | A remote contribution selector uses a category other than `singer`. |

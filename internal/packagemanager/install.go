@@ -3,19 +3,22 @@ package packagemanager
 import (
 	"context"
 	"fmt"
-	"github.com/diffscope/diffscope-package-manager/internal/dependency"
+	"github.com/diffscope/diffscope-package-manager/internal/diskspace"
 	"github.com/diffscope/diffscope-package-manager/internal/localstore"
 	"github.com/diffscope/diffscope-package-manager/packagearchive"
 	"github.com/diffscope/diffscope-package-manager/packagedatabase"
+	dependency "github.com/diffscope/diffscope-package-manager/packagedependency"
 	"github.com/diffscope/diffscope-package-manager/packageinfo"
 	"path/filepath"
 	"time"
 )
 
 type InstallRequest struct {
-	Files     []string
-	Overwrite bool
-	DryRun    bool
+	Files            []string
+	Overwrite        bool
+	DryRun           bool
+	prepared         []installInput
+	expectedSnapshot string
 }
 type installInput struct {
 	file     string
@@ -27,10 +30,13 @@ type installInput struct {
 func (m *Manager) Install(ctx context.Context, request InstallRequest, observer Observer) (MutationResult, error) {
 	result := MutationResult{Actions: []Action{}, DryRun: request.DryRun}
 	if len(request.Files) == 0 {
-		return result, failure("INVALID_ARGUMENT", fmt.Errorf("at least one package file is required"))
+		return result, failure("INVALID_ARGUMENT", fmt.Errorf("At least one package file is required."))
 	}
-	inputs := []installInput{}
+	inputs := append([]installInput{}, request.prepared...)
 	defer func() {
+		if request.prepared != nil {
+			return
+		}
 		for _, input := range inputs {
 			input.archive.Close()
 		}
@@ -41,7 +47,11 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest, observer 
 	if err != nil {
 		return result, err
 	}
-	for _, filename := range request.Files {
+	inspectFiles := request.Files
+	if request.prepared != nil {
+		inspectFiles = nil
+	}
+	for _, filename := range inspectFiles {
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
@@ -57,7 +67,7 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest, observer 
 			return result, failure("INVALID_PACKAGE", err)
 		}
 		if identities[input.manifest.String()] {
-			return result, failure("CONFLICT", fmt.Errorf("duplicate batch identity %s", input.manifest.String()))
+			return result, failure("CONFLICT", fmt.Errorf("The batch contains a duplicate package identity %s.", input.manifest.String()))
 		}
 		identities[input.manifest.String()] = true
 		input.hash, err = a.HashWithProgress(ctx, progress)
@@ -68,7 +78,7 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest, observer 
 		emit(observer, "inspect_ok", input.manifest.Identity)
 	}
 	_, resolved := beginProgress(observer, "resolve", m.Root)
-	s, err := localstore.Open(m.Root, !request.DryRun)
+	s, err := openStore(ctx, m.Root, !request.DryRun, observer)
 	if err != nil {
 		return result, err
 	}
@@ -78,6 +88,10 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest, observer 
 	existing, err := s.Records()
 	if err != nil {
 		return result, err
+	}
+	snapshotChanged := request.expectedSnapshot != "" && request.expectedSnapshot != snapshotFingerprint(existing)
+	if snapshotChanged {
+		emit(observer, "plan_updated", map[string]any{"reason": "store snapshot changed; actions recomputed"})
 	}
 	current := map[string]packagedatabase.Record{}
 	for _, r := range existing {
@@ -95,7 +109,7 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest, observer 
 			if old.Hash == input.hash {
 				action = "skip"
 			} else if !request.Overwrite {
-				return result, failure("CONFLICT", fmt.Errorf("different content is already installed as %s; use --overwrite-existing", p.String()))
+				return result, failure("CONFLICT", fmt.Errorf("Different content is already installed as %s. Replacement requires --overwrite-existing.", p.String()))
 			} else {
 				action = "overwrite"
 				remove = append(remove, old)
@@ -109,12 +123,26 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest, observer 
 		}
 		result.Diagnostics = append(result.Diagnostics, p.Diagnostics...)
 	}
-	if err := dependency.Validate(candidates(mapRecords(current))); err != nil {
+	if _, err := dependency.ValidateAll(ctx, candidates(mapRecords(current)), dependency.DefaultLimits()); err != nil {
+		if snapshotChanged {
+			return result, failure("STORE_CHANGED", err)
+		}
 		return result, failure("DEPENDENCY_ERROR", err)
 	}
 	resolved()
 	emit(observer, "plan", result.Actions)
 	if !request.DryRun {
+		var stagingBytes int64
+		for i, input := range inputs {
+			if result.Actions[i].Action != "skip" {
+				stagingBytes += input.archive.UncompressedBytes()
+			}
+		}
+		if stagingBytes > 0 {
+			if err := diskspace.Check(s.Root, stagingBytes); err != nil {
+				return result, failure("DISK_FULL", err)
+			}
+		}
 		put := []localstore.Put{}
 		recordIndex := 0
 		for i, input := range inputs {
@@ -128,7 +156,7 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest, observer 
 			}
 			// Stage metadata is re-evaluated at the final root, not its temporary location.
 			if p.Identity.String() != records[recordIndex].Identity.String() {
-				return result, failure("INVALID_PACKAGE", fmt.Errorf("package identity changed while staging"))
+				return result, failure("INVALID_PACKAGE", fmt.Errorf("The package identity changed during staging."))
 			}
 			extracted()
 			progress, verified := beginProgress(observer, "verify", p.String())
@@ -137,7 +165,7 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest, observer 
 				return result, err
 			}
 			if hash != input.hash {
-				return result, failure("INVALID_PACKAGE", fmt.Errorf("package bytes changed while staging"))
+				return result, failure("INVALID_PACKAGE", fmt.Errorf("The package bytes changed during staging."))
 			}
 			finalManifest, err := s.LoadStage(stage, p.Identity)
 			if err != nil {
@@ -150,7 +178,10 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest, observer 
 			verified()
 			emit(observer, "staged", p.Identity)
 		}
-		if err := dependency.Validate(candidates(mapRecords(current))); err != nil {
+		if _, err := dependency.ValidateAll(ctx, candidates(mapRecords(current)), dependency.DefaultLimits()); err != nil {
+			if snapshotChanged {
+				return result, failure("STORE_CHANGED", err)
+			}
 			return result, failure("DEPENDENCY_ERROR", err)
 		}
 		_, committed := beginProgress(observer, "commit", m.Root)

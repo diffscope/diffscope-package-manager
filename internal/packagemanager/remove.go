@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/diffscope/diffscope-package-manager/internal/dependency"
 	"github.com/diffscope/diffscope-package-manager/internal/localstore"
 	"github.com/diffscope/diffscope-package-manager/packagedatabase"
+	dependency "github.com/diffscope/diffscope-package-manager/packagedependency"
 	"github.com/diffscope/diffscope-package-manager/packageinfo"
 )
 
@@ -32,7 +32,7 @@ func (m *Manager) Remove(ctx context.Context, request RemoveRequest, observer Ob
 	for _, target := range request.Targets {
 		selector, err := packageinfo.ParseSelector(target)
 		if err != nil || selector.Category != "" {
-			return result, failure("INVALID_ARGUMENT", fmt.Errorf("invalid remove target %q", target))
+			return result, failure("INVALID_ARGUMENT", fmt.Errorf("The removal target %q is invalid.", target))
 		}
 		p, err := resolve(records, selector)
 		if err != nil {
@@ -50,7 +50,19 @@ func (m *Manager) Remove(ctx context.Context, request RemoveRequest, observer Ob
 		direct[k] = v
 	}
 	if request.Cascade {
-		selected = dependency.Cascade(candidates(records), selected)
+		identities := []packageinfo.Identity{}
+		for _, p := range records {
+			if selected[p.String()] {
+				identities = append(identities, p.Identity)
+			}
+		}
+		removed, err := dependency.Cascade(ctx, candidates(records), identities, dependency.DefaultLimits())
+		if err != nil {
+			return result, failure("DEPENDENCY_ERROR", err)
+		}
+		for _, id := range removed {
+			selected[id.String()] = true
+		}
 	}
 	remaining := []packagedatabase.Record{}
 	remove := []packagedatabase.Record{}
@@ -66,7 +78,7 @@ func (m *Manager) Remove(ctx context.Context, request RemoveRequest, observer Ob
 			remaining = append(remaining, p)
 		}
 	}
-	if err := dependency.Validate(candidates(remaining)); err != nil {
+	if _, err := dependency.ValidateAll(ctx, candidates(remaining), dependency.DefaultLimits()); err != nil {
 		return result, failure("DEPENDENCY_ERROR", err)
 	}
 	resolved()

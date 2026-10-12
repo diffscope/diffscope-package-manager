@@ -34,7 +34,7 @@ func TestTextInfoRestoresSectionsAndShowsIndependentLevel(t *testing.T) {
 			Category: "vendor.custom", ID: "main", Path: "custom.json",
 		}, {
 			Category: "singer", ID: "voice", Path: "singer.json",
-			SingerDeclaration: &packageinfo.SingerDeclaration{Expanded: true, ModuleMetadata: &packageinfo.ModuleMetadata{Interface: "example.Singer", Level: json.Number("2"), Variant: "v"}},
+			SingerDeclaration: &packageinfo.SingerDeclaration{Expanded: true, ModuleMetadata: &packageinfo.ModuleMetadata{Interface: "example.Singer", Level: 2, Variant: "v"}},
 		}},
 	}
 	if err := r.Query(packagemanager.Info{Package: p, File: "voice.dspk", Hash: strings.Repeat("0", 128)}, nil); err != nil {
@@ -148,6 +148,21 @@ func TestStyledJSONHasNoTerminalEscapesOrDiagnosticText(t *testing.T) {
 		if !json.Valid([]byte(line)) {
 			t.Fatal("not NDJSON:", line)
 		}
+	}
+}
+
+func TestJSONPresentationPreservesDeclarationNumbers(t *testing.T) {
+	var out bytes.Buffer
+	r := &Renderer{Out: &out, Err: io.Discard, JSON: true, Command: "info"}
+	declaration := map[string]any{"serial": json.Number("9007199254740993"), "url": "https://example.org/resource?token=secret"}
+	if err := r.Query(packagemanager.Info{Package: packageinfo.PackageManifest{Manifest: declaration}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"serial":9007199254740993`) || strings.Contains(out.String(), "secret") {
+		t.Fatal("Presentation modified a declaration number or exposed a credential.", out.String())
+	}
+	if declaration["url"] != "https://example.org/resource?token=secret" {
+		t.Fatal("Presentation modified the original declaration.", declaration)
 	}
 }
 

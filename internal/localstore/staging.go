@@ -14,7 +14,7 @@ import (
 func (s *Session) txRoot() string { return filepath.Join(s.Root, ".dspm", "transactions") }
 func (s *Session) ensureTransaction() error {
 	if !s.writable {
-		return fmt.Errorf("read session cannot modify packages")
+		return fmt.Errorf("A read session cannot modify packages.")
 	}
 	if s.transaction != "" {
 		return nil
@@ -58,13 +58,13 @@ func (s *Session) StagedHash(ctx context.Context, stage string, limits packagear
 
 func (s *Session) StagedHashWithProgress(ctx context.Context, stage string, limits packagearchive.Limits, progress packagearchive.ProgressFunc) (string, error) {
 	if !validStage(stage) || s.transaction == "" {
-		return "", fmt.Errorf("invalid stage")
+		return "", fmt.Errorf("The staging record is invalid.")
 	}
 	return packagearchive.HashDirectoryWithProgress(ctx, filepath.Join(s.txRoot(), s.transaction, stage), limits, progress)
 }
 func (s *Session) LoadStage(stage string, id packageinfo.Identity) (packageinfo.PackageManifest, error) {
 	if !validStage(stage) || s.transaction == "" {
-		return packageinfo.PackageManifest{}, fmt.Errorf("invalid stage")
+		return packageinfo.PackageManifest{}, fmt.Errorf("The staging record is invalid.")
 	}
 	d, err := packagearchive.OpenDirectory(filepath.Join(s.txRoot(), s.transaction, stage))
 	if err != nil {

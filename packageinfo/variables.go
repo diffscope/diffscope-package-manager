@@ -18,13 +18,14 @@ func validVar(s string) bool {
 	return true
 }
 
-// expand evaluates the original template once. Replacement text is never rescanned.
+// Returns the expanded template or an error for invalid references or exceeded limits.
+// Replacement text is not rescanned.
 func expand(s string, scope map[string]string) (string, error) {
 	pos := 0
 	var parse func(bool, int) (string, error)
 	parse = func(nested bool, depth int) (string, error) {
 		if depth > maxJSONDepth {
-			return "", fmt.Errorf("variable nesting limit exceeded")
+			return "", fmt.Errorf("Variable nesting exceeds its limit.")
 		}
 		var b strings.Builder
 		for pos < len(s) {
@@ -48,7 +49,7 @@ func expand(s string, scope map[string]string) (string, error) {
 						b.WriteString(scope[name])
 					}
 					if b.Len() > MaxJSONBytes {
-						return "", fmt.Errorf("expanded string limit exceeded")
+						return "", fmt.Errorf("The expanded string exceeds its byte limit.")
 					}
 					continue
 				}
@@ -57,7 +58,7 @@ func expand(s string, scope map[string]string) (string, error) {
 			pos++
 		}
 		if nested {
-			return "", fmt.Errorf("unpaired variable reference")
+			return "", fmt.Errorf("The template contains an unpaired variable reference.")
 		}
 		return b.String(), nil
 	}
@@ -72,18 +73,18 @@ func expandDocument(raw map[string]any, outer map[string]string) (map[string]any
 		variableBudget := MaxJSONBytes
 		a, ok := variables.([]any)
 		if !ok {
-			return nil, nil, fmt.Errorf("vars must be an array")
+			return nil, nil, fmt.Errorf("The vars field must be an array.")
 		}
 		seen := map[string]bool{}
 		for _, value := range a {
 			m, ok := value.(map[string]any)
 			if !ok || len(m) != 2 {
-				return nil, nil, fmt.Errorf("variable must contain only name and value")
+				return nil, nil, fmt.Errorf("A variable must contain only name and value fields.")
 			}
 			name, nok := m["name"].(string)
 			v, vok := m["value"].(string)
 			if !nok || !vok || !validVar(name) || name == "root" || name == "dir" || seen[name] {
-				return nil, nil, fmt.Errorf("invalid or repeated variable name %q", name)
+				return nil, nil, fmt.Errorf("The variable name %q is invalid or repeated.", name)
 			}
 			seen[name] = true
 			e, err := expand(v, scope)
@@ -93,7 +94,7 @@ func expandDocument(raw map[string]any, outer map[string]string) (map[string]any
 			scope[name] = e
 			variableBudget -= len(e)
 			if variableBudget < 0 {
-				return nil, nil, fmt.Errorf("expanded variable scope limit exceeded")
+				return nil, nil, fmt.Errorf("The expanded variable scope exceeds its byte limit.")
 			}
 		}
 	}
@@ -108,7 +109,7 @@ func expandDocument(raw map[string]any, outer map[string]string) (map[string]any
 			e, err := expand(x, scope)
 			budget -= len(e)
 			if budget < 0 {
-				return nil, fmt.Errorf("expanded JSON limit exceeded")
+				return nil, fmt.Errorf("The expanded JSON exceeds its byte limit.")
 			}
 			return e, err
 		case map[string]any:

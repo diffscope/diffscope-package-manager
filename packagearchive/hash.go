@@ -9,7 +9,8 @@ import (
 	"sort"
 )
 
-// Hash validates all file streams and CRCs, including resources not referenced by metadata.
+// Returns the content-tree digest after validating all file streams and CRCs.
+// Returns an error for failed reads, invalid lengths, CRC failures, or cancellation.
 func (a *Archive) Hash(ctx context.Context) (string, error) {
 	return a.HashWithProgress(ctx, nil)
 }
@@ -59,7 +60,7 @@ func copyContextWithProgress(ctx context.Context, w io.Writer, r io.Reader, limi
 		}
 		n, err := r.Read(b)
 		if int64(n) > limit-total {
-			return total, fmt.Errorf("stream size limit exceeded")
+			return total, fmt.Errorf("The stream exceeds its size limit.")
 		}
 		if n > 0 {
 			m, e := w.Write(b[:n])

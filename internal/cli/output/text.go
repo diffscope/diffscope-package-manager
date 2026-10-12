@@ -11,13 +11,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
 	"github.com/diffscope/diffscope-package-manager/internal/language"
+	"github.com/diffscope/diffscope-package-manager/internal/netpolicy"
 	"github.com/diffscope/diffscope-package-manager/internal/packagemanager"
 	"github.com/diffscope/diffscope-package-manager/packagearchive"
 	"github.com/diffscope/diffscope-package-manager/packageinfo"
+	"github.com/muesli/termenv"
 )
 
-// Text styling belongs to the destination writer, never to the JSON renderer
-// or a process-global terminal profile. Redirected output stays readable.
+// Text styling uses the destination writer's terminal capabilities.
+// JSON and redirected output require no process-global terminal profile.
 type textStyles struct {
 	renderer                                                           *lipgloss.Renderer
 	section, key, language, muted, success, warning, failure, identity lipgloss.Style
@@ -41,12 +43,18 @@ func newTextStyles(out io.Writer) *textStyles {
 func (r *Renderer) styles() *textStyles {
 	if r.style == nil {
 		r.style = newTextStyles(r.Out)
+		if r.ProgressMode == "plain" {
+			r.style.renderer.SetColorProfile(termenv.Ascii)
+		}
 	}
 	return r.style
 }
 func (r *Renderer) errorStyles() *textStyles {
 	if r.errStyle == nil {
 		r.errStyle = newTextStyles(r.Err)
+		if r.ProgressMode == "plain" {
+			r.errStyle.renderer.SetColorProfile(termenv.Ascii)
+		}
 	}
 	return r.errStyle
 }
@@ -57,7 +65,7 @@ func (r *Renderer) printf(format string, args ...any) {
 }
 func (r *Renderer) section(title string) { r.printf("%s\n", r.styles().section.Render(title)) }
 func (r *Renderer) field(indent, key, value string) {
-	r.printf("%s%s %s\n", indent, r.styles().key.Render(key+":"), value)
+	r.printf("%s%s %s\n", indent, r.styles().key.Render(key+":"), outputURL.ReplaceAllStringFunc(safeText(value), netpolicy.Redact))
 }
 func textKeys(text packageinfo.Text) []string {
 	keys := make([]string, 0, len(text))
@@ -97,15 +105,49 @@ func (r *Renderer) textField(indent, key string, text packageinfo.Text) {
 		return
 	}
 	if r.Language != "*" {
-		r.field(indent, key, r.Text(text))
+		r.field(indent, key, safeText(r.Text(text)))
 		return
 	}
 	for _, languageKey := range textKeys(text) {
 		label := r.styles().key.Render(key) + r.styles().language.Render("["+languageKey+"]") + r.styles().key.Render(":")
-		r.printf("%s%s %s\n", indent, label, text[languageKey])
+		r.printf("%s%s %s\n", indent, label, outputURL.ReplaceAllStringFunc(safeText(text[languageKey]), netpolicy.Redact))
 	}
 }
 func (r *Renderer) none(indent string) { r.printf("%s%s\n", indent, r.styles().muted.Render("(none)")) }
+
+func (r *Renderer) packageSummary(identity packageinfo.Identity, compatVersion packageinfo.Version, name, description, vendor packageinfo.Text) {
+	r.section("Package")
+	r.field("  ", "ID", identity.ID)
+	r.field("  ", "Version", identity.Version.String())
+	r.textField("  ", "Name", name)
+	r.textField("  ", "Description", description)
+	r.textField("  ", "Vendor", vendor)
+	r.field("  ", "CompatVersion", compatVersion.String())
+}
+
+func (r *Renderer) documentation(license, readme packageinfo.Text, url *string) {
+	r.textField("  ", "License", license)
+	r.textField("  ", "Readme", readme)
+	if url != nil {
+		r.field("  ", "URL", *url)
+	}
+}
+
+func (r *Renderer) dependencies(dependencies []packageinfo.Dependency) {
+	r.section("Dependencies")
+	if len(dependencies) == 0 {
+		r.none("  ")
+	}
+	for _, dependency := range dependencies {
+		r.printf("  %s=%s\n", dependency.ID, dependency.Version.String())
+	}
+}
+
+func (r *Renderer) moduleMetadata(indent, contract string, level int64, variant string) {
+	r.field(indent, "Interface", contract)
+	r.field(indent, "Level", fmt.Sprint(level))
+	r.field(indent, "Variant", variant)
+}
 
 func (r *Renderer) info(v packagemanager.Info) {
 	p := v.Package
@@ -132,28 +174,12 @@ func (r *Renderer) info(v packagemanager.Info) {
 		r.field("  ", "InstalledAt", installedAtText(v.Installation.InstalledAt))
 		r.printf("\n")
 	}
-	r.section("Package")
-	r.field("  ", "ID", p.ID)
-	r.field("  ", "Version", p.Version.String())
-	r.textField("  ", "Name", p.Name)
-	r.textField("  ", "Description", p.Description)
-	r.textField("  ", "Vendor", p.Vendor)
-	r.field("  ", "CompatVersion", p.CompatVersion.String())
+	r.packageSummary(p.Identity, p.CompatVersion, p.Name, p.Description, p.Vendor)
 	r.field("  ", "FormatVersion", p.FormatVersion.String())
 	r.field("  ", "RuntimeLevel", fmt.Sprint(p.RuntimeLevel))
-	r.textField("  ", "License", p.License)
-	r.textField("  ", "Readme", p.Readme)
-	if p.URL != nil {
-		r.field("  ", "URL", *p.URL)
-	}
+	r.documentation(p.License, p.Readme, p.URL)
 	r.printf("\n")
-	r.section("Dependencies")
-	if len(p.Dependencies) == 0 {
-		r.none("  ")
-	}
-	for _, dependency := range p.Dependencies {
-		r.printf("  %s=%s\n", dependency.ID, dependency.Version.String())
-	}
+	r.dependencies(p.Dependencies)
 	r.printf("\n")
 	r.section("Contributions")
 	if len(p.Contributions) == 0 {
@@ -175,9 +201,7 @@ func (r *Renderer) info(v packagemanager.Info) {
 		}
 		r.textField("      ", "Name", contribution.Name)
 		if contribution.ModuleMetadata != nil {
-			r.field("      ", "Interface", contribution.Interface)
-			r.field("      ", "Level", contribution.Level.String())
-			r.field("      ", "Variant", contribution.Variant)
+			r.moduleMetadata("      ", contribution.Interface, contribution.Level, contribution.Variant)
 		}
 		if contribution.MetadataError != "" {
 			r.printf("      %s\n", r.styles().warning.Render("! "+contribution.MetadataError))
@@ -226,6 +250,9 @@ func installedAtText(seconds int64) string {
 }
 
 func (r *Renderer) textEvent(event packagemanager.Event) {
+	if r.remoteEvent(event) {
+		return
+	}
 	styles := r.styles()
 	switch event.Event {
 	case "ignored":
@@ -247,7 +274,7 @@ func (r *Renderer) textEvent(event packagemanager.Event) {
 			}
 		}
 	case "inspect_ok":
-		return // The inspection progress completion resolves the original spinner.
+		return // Inspection progress completion ends the active spinner.
 	case "plan":
 		if actions, ok := event.Data.([]packagemanager.Action); ok && r.Command == "install" {
 			for _, action := range actions {
@@ -292,7 +319,7 @@ func (r *Renderer) textEvent(event packagemanager.Event) {
 			}
 		}
 	case "staged":
-		return // Keep the complete batch of extraction bars visible until results.
+		return // Extraction bars remain visible until result rendering.
 	case "result":
 		if action, ok := event.Data.(packagemanager.Action); ok {
 			hash := ""

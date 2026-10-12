@@ -11,7 +11,7 @@ func (m *Manager) Pack(ctx context.Context, source, output string, force, dryRun
 	_, checked := beginProgress(observer, "check", source)
 	if info, err := os.Lstat(output); err == nil {
 		if info.IsDir() || !force {
-			return packagearchive.PackPlan{}, failure("CONFLICT", fmt.Errorf("output already exists; --force is required to replace a file"))
+			return packagearchive.PackPlan{}, failure("CONFLICT", fmt.Errorf("The output file already exists. Replacement requires --force."))
 		}
 	} else if !os.IsNotExist(err) {
 		return packagearchive.PackPlan{}, err

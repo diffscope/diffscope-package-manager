@@ -6,10 +6,19 @@ import (
 )
 
 type Error struct {
-	Code    string
-	Message string
-	Details any
-	Cause   error
+	Code              string
+	Message           string
+	Details           any
+	Cause             error
+	DiagnosticDetails []Diagnostic
+}
+
+type Diagnostic struct {
+	Code     string                `json:"code"`
+	Severity string                `json:"severity"`
+	Identity *packageinfo.Identity `json:"identity,omitempty"`
+	SourceID string                `json:"sourceId,omitempty"`
+	Message  string                `json:"message"`
 }
 
 func (e *Error) Error() string { return e.Message }

@@ -1,7 +1,6 @@
 package packageinfo
 
 import (
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"path"
@@ -11,9 +10,9 @@ import (
 
 // ModuleMetadata contains the required common fields of a module declaration.
 type ModuleMetadata struct {
-	Interface string      `json:"interface"`
-	Level     json.Number `json:"level"`
-	Variant   string      `json:"variant"`
+	Interface string `json:"interface"`
+	Level     int64  `json:"level"`
+	Variant   string `json:"variant"`
 }
 
 // SingerDeclaration records metadata extraction and is absent for opaque categories.
@@ -33,7 +32,7 @@ type SingerMetadata struct {
 	DemoAudio  Text `json:"demoAudio,omitempty"`
 }
 
-// Reads singer metadata and returns extraction diagnostics.
+// Reads singer metadata and returns diagnostics or an error for invalid JSON or exceeded limits.
 // Required field extraction failures retain the declaration and set MetadataError.
 // Resource contents, imports, exports, and interpreter configuration are not validated.
 func loadSingerContribution(files fs.FS, root string, scope map[string]string, c *Contribution, metadataRemaining *int64) ([]string, error) {
@@ -58,7 +57,7 @@ func loadSingerContribution(files fs.FS, root string, scope map[string]string, c
 	}
 	*metadataRemaining -= metadataCost(c.Manifest)
 	if *metadataRemaining < 0 {
-		return nil, fmt.Errorf("package metadata resource limit exceeded")
+		return nil, fmt.Errorf("The package metadata exceeds a resource limit.")
 	}
 	if !c.Expanded {
 		return diagnostics, nil
@@ -69,7 +68,7 @@ func loadSingerContribution(files fs.FS, root string, scope map[string]string, c
 			c.Name = t
 		} else {
 			c.Name = nil
-			diagnostics = append(diagnostics, prefix+"name unavailable")
+			diagnostics = append(diagnostics, prefix+"The name field is unavailable.")
 		}
 	}
 	module := &ModuleMetadata{}
@@ -102,7 +101,7 @@ func loadSingerContribution(files fs.FS, root string, scope map[string]string, c
 	for _, field := range []string{"avatar", "background", "demoAudio"} {
 		if value, exists := c.Manifest[field]; exists {
 			if _, ok := TextValue(value); !ok {
-				diagnostics = append(diagnostics, prefix+field+" unavailable")
+				diagnostics = append(diagnostics, prefix+"The "+field+" field is unavailable.")
 			}
 		}
 	}

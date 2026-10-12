@@ -21,7 +21,7 @@ func (s *Session) transactionIDs() ([]string, error) {
 	ids := []string{}
 	for _, e := range entries {
 		if !e.IsDir() || !validTx(e.Name()) {
-			return nil, fmt.Errorf("unexpected transaction entry %q", e.Name())
+			return nil, fmt.Errorf("The transaction directory contains an unexpected entry %q.", e.Name())
 		}
 		ids = append(ids, e.Name())
 	}
@@ -53,7 +53,7 @@ func (s *Session) recover() error {
 			if err := s.removeTransaction(id); err != nil {
 				return err
 			}
-			s.Diagnostics = append(s.Diagnostics, "removed interrupted staging "+id)
+			s.Diagnostics = append(s.Diagnostics, "Interrupted staging for transaction "+id+" was removed.")
 			continue
 		}
 		if err != nil {
@@ -61,10 +61,10 @@ func (s *Session) recover() error {
 		}
 		var j journal
 		if len(b) > 16<<20 {
-			return fmt.Errorf("transaction journal exceeds limit")
+			return fmt.Errorf("The transaction journal exceeds its byte limit.")
 		}
 		if err = json.Unmarshal(b, &j); err != nil {
-			return fmt.Errorf("invalid transaction journal: %w", err)
+			return fmt.Errorf("The transaction journal is invalid: %w", err)
 		}
 		if err = s.validateJournal(j, id); err != nil {
 			return err
@@ -75,33 +75,33 @@ func (s *Session) recover() error {
 		}
 		if committed {
 			if err = s.cleanup(j); err != nil {
-				s.Diagnostics = append(s.Diagnostics, "committed cleanup pending: "+err.Error())
+				s.Diagnostics = append(s.Diagnostics, "Committed transaction cleanup remains pending: "+err.Error())
 				pendingCleanup = true
 				continue
 			}
-			s.Diagnostics = append(s.Diagnostics, "completed committed transaction cleanup "+id)
+			s.Diagnostics = append(s.Diagnostics, "Committed cleanup for transaction "+id+" is complete.")
 		} else {
 			if err = s.rollback(j); err != nil {
 				return err
 			}
-			s.Diagnostics = append(s.Diagnostics, "rolled back interrupted transaction "+id)
+			s.Diagnostics = append(s.Diagnostics, "Interrupted transaction "+id+" was rolled back.")
 		}
 	}
 	if !pendingCleanup && s.db != nil {
 		if err = s.db.ClearOrphanCommits(); err != nil {
-			s.Diagnostics = append(s.Diagnostics, "commit marker cleanup pending: "+err.Error())
+			s.Diagnostics = append(s.Diagnostics, "Commit marker cleanup remains pending: "+err.Error())
 		}
 	}
 	return nil
 }
 func (s *Session) validateJournal(j journal, id string) error {
 	if j.ID != id || !validTx(id) {
-		return fmt.Errorf("invalid transaction identity")
+		return fmt.Errorf("The transaction identity is invalid.")
 	}
 	seen := map[string]bool{}
 	for i, m := range j.Moves {
 		if m.Directory != DirectoryName(m.Identity) || !packageinfo.IsValidPackageIdentifier(m.Identity.ID) || seen[m.Directory] || m.Backup != fmt.Sprintf("backup-%d", i) || m.Stage != "" && !validStage(m.Stage) {
-			return fmt.Errorf("invalid transaction operation")
+			return fmt.Errorf("The transaction operation is invalid.")
 		}
 		seen[m.Directory] = true
 	}
@@ -124,7 +124,7 @@ func (s *Session) rollback(j journal) error {
 			return err
 		} else if m.Old {
 			if _, err = os.Stat(final); err != nil {
-				return fmt.Errorf("required original package is missing: %w", err)
+				return fmt.Errorf("The required original package is missing: %w", err)
 			}
 		} else {
 			if err = s.removePackage(m.Directory); err != nil {
@@ -146,23 +146,23 @@ func (s *Session) cleanup(j journal) error {
 func (s *Session) removePackage(directory string) error {
 	b, err := hex.DecodeString(directory)
 	if err != nil || len(b) != sha256.Size {
-		return fmt.Errorf("unsafe package removal path")
+		return fmt.Errorf("The package removal path is unsafe.")
 	}
 	target := filepath.Join(s.Root, directory)
 	relative, err := filepath.Rel(s.Root, target)
 	if err != nil || !filepath.IsLocal(relative) || relative == "." {
-		return fmt.Errorf("unsafe package removal path")
+		return fmt.Errorf("The package removal path is unsafe.")
 	}
 	return os.RemoveAll(target)
 }
 func (s *Session) removeTransaction(id string) error {
 	if !validTx(id) {
-		return fmt.Errorf("unsafe transaction removal path")
+		return fmt.Errorf("The transaction removal path is unsafe.")
 	}
 	target := filepath.Join(s.txRoot(), id)
 	relative, err := filepath.Rel(s.txRoot(), target)
 	if err != nil || !filepath.IsLocal(relative) || relative == "." {
-		return fmt.Errorf("unsafe transaction removal path")
+		return fmt.Errorf("The transaction removal path is unsafe.")
 	}
 	return os.RemoveAll(target)
 }

@@ -9,7 +9,7 @@ import (
 
 const defaultLanguage = "und"
 
-// CurrentCode returns the best available BCP 47 language code for the current process.
+// Returns the best available BCP 47 language code for the process or und if no code is available.
 func CurrentCode() string {
 	for _, candidate := range append(platformLanguageCodes(), environmentLanguageCodes()...) {
 		for _, value := range splitLanguageValue(candidate) {
@@ -21,7 +21,8 @@ func CurrentCode() string {
 	return defaultLanguage
 }
 
-// BestMatch returns the available BCP 47 code that best matches requested.
+// Returns the best matching available BCP 47 code and true.
+// Returns an empty string and false if no suitable match is available.
 func BestMatch(requested string, available []string) (string, bool) {
 	if len(available) == 0 {
 		return "", false

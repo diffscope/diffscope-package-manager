@@ -169,7 +169,7 @@ func TestInfoSingerRequiredMetadataFailure(t *testing.T) {
 		t.Fatal("The installed package listing is invalid.", listing, err)
 	}
 	contribution := listing.Data[0].Contributions[0]
-	if contribution.Interface != "" || contribution.Level != "" || contribution.Variant != "" || contribution.Name["_"] != "Singer" {
+	if contribution.Interface != "" || contribution.Level != 0 || contribution.Variant != "" || contribution.Name["_"] != "Singer" {
 		t.Fatal("Partial common module metadata was indexed.", contribution)
 	}
 	out, errOut, err := execute(t, "--packages-dir", root, "info", "--installed", "voice=1:singer/main")

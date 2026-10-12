@@ -206,7 +206,7 @@ func TestPackExtractHashAndNoClobber(t *testing.T) {
 	if err := a.Close(); err != nil {
 		t.Fatal(err)
 	}
-	// Repacking remains byte-content deterministic and never includes its old output.
+	// Repacking preserves content bytes and excludes the existing output archive.
 	secondPlan, err := Plan(context.Background(), source, output, DefaultLimits())
 	if err != nil {
 		t.Fatal(err)

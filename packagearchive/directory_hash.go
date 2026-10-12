@@ -9,7 +9,7 @@ import (
 	"sort"
 )
 
-// HashDirectory hashes the staged bytes that will actually be installed.
+// Returns the staged content-tree digest or an error for unsafe files, exceeded limits, or failed reads.
 func HashDirectory(ctx context.Context, root string, limits Limits) (string, error) {
 	return HashDirectoryWithProgress(ctx, root, limits, nil)
 }
@@ -35,7 +35,7 @@ func HashDirectoryWithProgress(ctx context.Context, root string, limits Limits, 
 		}
 		entries++
 		if entries > limits.Entries {
-			return fmt.Errorf("too many staged entries")
+			return fmt.Errorf("The staging directory contains too many entries.")
 		}
 		if entry.IsDir() {
 			return nil
@@ -45,10 +45,10 @@ func HashDirectoryWithProgress(ctx context.Context, root string, limits Limits, 
 			return err
 		}
 		if !info.Mode().IsRegular() {
-			return fmt.Errorf("special staged file")
+			return fmt.Errorf("The staging directory contains a special file.")
 		}
 		if info.Size() > limits.FileBytes || info.Size() > limits.TotalBytes-size {
-			return fmt.Errorf("staged size limit exceeded")
+			return fmt.Errorf("The staged contents exceed their size limit.")
 		}
 		size += info.Size()
 		if err := validateName(name, false, limits.PathBytes); err != nil {

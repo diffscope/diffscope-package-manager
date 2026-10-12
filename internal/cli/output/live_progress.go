@@ -10,13 +10,14 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/diffscope/diffscope-package-manager/internal/download"
 	"github.com/diffscope/diffscope-package-manager/internal/packagemanager"
 	"github.com/muesli/termenv"
 	"github.com/pterm/pterm"
 )
 
-// Keep the original PTerm formatter and settings. UpdateTitle formats one frame
-// without Start's process-global printer registration or animation goroutines.
+// UpdateTitle formats a frame without process-global printer registration
+// or animation goroutines. The owner controls output and refresh timing.
 func originalProgressBar(width, current int) string {
 	var frame bytes.Buffer
 	bar := pterm.DefaultProgressbar.WithWriter(&frame).WithTotal(1000).
@@ -32,14 +33,16 @@ type liveRow struct {
 	target, file string
 	current      int
 	done, failed bool
+	download     *download.Progress
 }
 
-// All rows of a batch stay visible together, as with the original MultiPrinter.
-// One owner serializes refreshes, updates, cursor cleanup and ordinary output.
+// Batch rows remain visible together. A single owner serializes refreshes,
+// updates, cursor cleanup, and ordinary output.
 type liveProgress struct {
 	mu                sync.Mutex
 	out               io.Writer
 	width             func() int
+	height            func() int
 	styles            *textStyles
 	stop, stopped     chan struct{}
 	rows              []liveRow
@@ -96,6 +99,9 @@ func (l *liveProgress) start(mode string, targets []string) {
 
 func (l *liveProgress) frame() []string {
 	width := max(1, l.width())
+	if l.mode == "download" {
+		return l.downloadFrame(width)
+	}
 	lines := []string{}
 	for _, row := range l.rows {
 		if l.mode == "inspect" {
@@ -129,8 +135,8 @@ func (l *liveProgress) frame() []string {
 		if l.styles.renderer.ColorProfile() == termenv.Ascii {
 			bar = ansi.Strip(bar)
 		}
-		// PTerm needs at least eight columns. Very narrow windows retain the
-		// percentage, rather than wrapping a progress bar onto unrelated rows.
+		// PTerm requires at least eight columns. Narrow windows display the
+		// percentage without a bar to prevent wrapping onto unrelated rows.
 		if width < 8 {
 			bar = ansi.Truncate(fmt.Sprintf("%3d%%", row.current/10), width, "")
 		}
@@ -235,7 +241,8 @@ func (l *liveProgress) freeze() {
 	l.active = false
 	l.drawnLines = 0
 }
-func (l *liveProgress) pause() { l.mu.Lock(); defer l.mu.Unlock(); l.freeze() }
+func (l *liveProgress) pause()             { l.mu.Lock(); defer l.mu.Unlock(); l.freeze() }
+func (l *liveProgress) outputError() error { l.mu.Lock(); defer l.mu.Unlock(); return l.err }
 func (l *liveProgress) close() error {
 	l.mu.Lock()
 	if !l.closed {

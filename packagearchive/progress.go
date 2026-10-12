@@ -38,7 +38,7 @@ func (p *progressTracker) done()       { p.FilesDone++; p.report() }
 func (a *Archive) byteSize() int64 {
 	var total int64
 	for _, file := range a.files {
-		total += int64(file.UncompressedSize64) // bounded by preflight limits
+		total += int64(file.UncompressedSize64) // Archive preflight bounds this sum.
 	}
 	return total
 }

@@ -74,7 +74,7 @@ func (m *Manager) InfoInstalled(ctx context.Context, target string) (Info, []str
 			}
 		}
 		if !found {
-			return result, s.Diagnostics, failure("NOT_FOUND", fmt.Errorf("contribution is not installed"))
+			return result, s.Diagnostics, failure("NOT_FOUND", fmt.Errorf("The requested contribution is not installed."))
 		}
 	}
 	return result, append(s.Diagnostics, result.Package.Diagnostics...), nil

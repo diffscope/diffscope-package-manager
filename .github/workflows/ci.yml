@@ -29,28 +29,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Go
+      - name: Go setup
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - name: Download dependencies
+      - name: Dependency download
         run: go mod download
 
-      - name: Configure MinGW
+      - name: MinGW configuration
         if: runner.os == 'Windows'
         run: |
           $compiler = Get-Command gcc -ErrorAction Stop
           "CC=$($compiler.Source)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           & $compiler.Source --version
 
-      - name: Check formatting
-        if: matrix.os == 'ubuntu-latest' # Formatting check is platform-agnostic, so only run it once to save time
+      - name: Formatting validation
+        if: matrix.os == 'ubuntu-latest' # Formatting validation requires one platform.
         run: |
           $unformatted = gofmt -l .
           if ($unformatted) {
-            Write-Error "The following Go files are not gofmt-formatted:"
+            Write-Error "The following Go files require gofmt formatting:"
             $unformatted
             exit 1
           }
@@ -61,7 +61,7 @@ jobs:
       - name: Test
         run: go test ./...
 
-      - name: Race test
+      - name: Race detection
         run: go test -race ./...
 
       - name: Build
@@ -70,7 +70,7 @@ jobs:
           $ext = if ($env:RUNNER_OS -eq 'Windows') { '.exe' } else { '' }
           go build -v -o "dist/dspm$ext" ./cmd/dspm
 
-      - name: Upload artifact
+      - name: Artifact upload
         uses: actions/upload-artifact@v7
         with:
           name: dspm-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}

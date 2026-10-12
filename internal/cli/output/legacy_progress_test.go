@@ -17,8 +17,8 @@ import (
 )
 
 func TestLegacyProgressBarGeometry(t *testing.T) {
-	// Captured from the old PTerm configuration: width 60, total 1000,
-	// no count/title/timer, full block glyphs, percentage on the right.
+	// The geometry requires width 60, total 1000, full block glyphs, and a
+	// right-aligned percentage without count, title, or timer fields.
 	for _, sample := range []struct {
 		current, blocks int
 		suffix          string
@@ -87,7 +87,7 @@ func TestLegacyColorHelper(t *testing.T) {
 	}
 	color.ForceColor()
 	color.Enable = true
-	// Recreate the old default, initialized while color is available.
+	// The formatter is initialized with color support before redirected output.
 	pterm.DefaultProgressbar.BarFiller = pterm.Gray("█")
 	want := "\x1b[36m\x1b[36m" + strings.Repeat("█", 14) + "\x1b[0m\x1b[0m" + strings.Repeat("\x1b[90m█\x1b[0m", 40) + " \x1b[38;2;191;63;0m 25%\x1b[0m "
 	if got := originalProgressBar(60, 250); got != want {
