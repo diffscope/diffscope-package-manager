@@ -34,7 +34,7 @@ func TestTextInfoRestoresSectionsAndShowsIndependentLevel(t *testing.T) {
 			Category: "vendor.custom", ID: "main", Path: "custom.json",
 		}, {
 			Category: "singer", ID: "voice", Path: "singer.json",
-			SingerDeclaration: &packageinfo.SingerDeclaration{Expanded: true, Level: json.Number("2")},
+			SingerDeclaration: &packageinfo.SingerDeclaration{Expanded: true, ModuleMetadata: &packageinfo.ModuleMetadata{Interface: "example.Singer", Level: json.Number("2"), Variant: "v"}},
 		}},
 	}
 	if err := r.Query(packagemanager.Info{Package: p, File: "voice.dspk", Hash: strings.Repeat("0", 128)}, nil); err != nil {

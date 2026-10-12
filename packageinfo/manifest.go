@@ -311,6 +311,9 @@ func Load(files fs.FS, root string) (PackageManifest, error) {
 					}
 				}
 				if category == "singer" {
+					if c.Path == "" {
+						return p, fmt.Errorf("Singer contribution %q requires a declaration path.", id)
+					}
 					diagnostics, err := loadSingerContribution(files, root, scope, &c, &metadataRemaining)
 					if err != nil {
 						return p, err

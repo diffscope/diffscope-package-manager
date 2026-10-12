@@ -174,17 +174,13 @@ func (r *Renderer) info(v packagemanager.Info) {
 			continue
 		}
 		r.textField("      ", "Name", contribution.Name)
-		if contribution.Interface != "" {
+		if contribution.ModuleMetadata != nil {
 			r.field("      ", "Interface", contribution.Interface)
-		}
-		if contribution.Level != "" {
 			r.field("      ", "Level", contribution.Level.String())
-		}
-		if contribution.Variant != "" {
 			r.field("      ", "Variant", contribution.Variant)
 		}
-		if !contribution.Expanded {
-			r.printf("      %s\n", r.styles().warning.Render("! Metadata expansion unavailable"))
+		if contribution.MetadataError != "" {
+			r.printf("      %s\n", r.styles().warning.Render("! "+contribution.MetadataError))
 		}
 		if contribution.Singer != nil {
 			r.textField("      ", "Avatar", contribution.Singer.Avatar)

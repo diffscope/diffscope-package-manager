@@ -47,7 +47,7 @@ Structured output uses UTF-8 without a byte order mark. Each JSON value terminat
 
 Structured responses and progress records use stdout. Diagnostics appear in JSON fields. stderr is not a JSON channel and can contain panic or runtime diagnostics. Integrations must capture stdout, stderr, and process exit status separately. JSON mode emits no terminal control sequences.
 
-Output conforms to strict JSON. Support for comments and a byte order mark in package declarations does not apply to CLI output.
+CLI output, package manifests, and parsed singer declarations use JSON without comments or a byte order mark. Comment delimiters and U+FEFF within JSON strings are literal string contents.
 
 ## Completion
 
@@ -128,6 +128,8 @@ A singer contribution has category ID exactly equal to `singer`. An opaque contr
 
 `ContributionSummary` contains required `category` and `id` fields. A singer summary can additionally contain `name` (`Text`), `interface` (string), `variant` (string), and `level` (decimal integer string). An opaque summary contains only `category` and `id`. Summaries contain no declaration path, declaration body, or singer resource fields.
 
+Contribution summaries are database projections rather than module declarations. Omission of indexed fields indicates unavailable extracted metadata and does not change the required fields of the package format.
+
 ## Package Information
 
 `Info` contains required `package` (`PackageManifest`). `info --file` additionally returns `file` and `hash` and omits `installation`. `file` preserves the supplied archive argument. `hash` is computed from all archive file contents and includes integrity verification.
@@ -137,6 +139,8 @@ A singer contribution has category ID exactly equal to `singer`. An opaque contr
 ### Package Manifest
 
 `PackageManifest` contains required `id`, `version`, `formatVersion`, `runtimeLevel`, `compatVersion`, `dependencies`, `contributions`, and `manifest`. Optional fields are `name`, `description`, `vendor`, `license`, `readme`, `url`, and `diagnostics`. `dependencies` and `contributions` are arrays, including `[]` if empty. `diagnostics`, if present, is a nonempty string array.
+
+The source declaration requires `$version`, `id`, `version`, and `runtimeLevel`. A missing required package field rejects the package. The output additionally includes defaulted `compatVersion` and empty collection values if their source fields are absent.
 
 | Declaration field | Extracted representation |
 | --- | --- |
@@ -151,7 +155,7 @@ A singer contribution has category ID exactly equal to `singer`. An opaque contr
 
 `license` and `readme` use identical path rules. A declaration accepts a shorthand string such as `"license": "LICENSE.txt"` or a language map such as `"license": {"_": "LICENSE.txt", "zh-CN": "docs/许可证.txt"}`. A language map requires the default key `_`. Variable expansion precedes path resolution. Every localized path is checked, regardless of the selected output language. Null values, empty paths, missing files, directories, and references outside the package are rejected. An absent field remains omitted.
 
-`manifest` contains expanded `desc.json` with arbitrary fields and JSON types retained. It does not preserve source formatting, comments, or byte order marks. Typed normalization does not modify the retained declaration representation. For example, `manifest.version` can contain `"1.0"` while the typed `version` contains `"1.0.0.0"`. `manifest.license` and `manifest.readme` contain expanded declaration paths while typed `license` and `readme` contain resolved host paths.
+`manifest` contains expanded `desc.json` with arbitrary fields and JSON types retained. Source formatting is not retained. Typed normalization does not modify the retained declaration representation. For example, `manifest.version` can contain `"1.0"` while the typed `version` contains `"1.0.0.0"`. `manifest.license` and `manifest.readme` contain expanded declaration paths while typed `license` and `readme` contain resolved host paths.
 
 The database stores package name, description, and vendor for installed package summaries. License paths, readme paths, URL, and arbitrary extension fields remain available through full information responses and are absent from installed package summaries.
 
@@ -161,19 +165,30 @@ The database stores package name, description, and vendor for installed package 
 | --- | --- |
 | `category`, `id` | Both fields are required. The category identifies the containing `desc.json` contribution array. The ID is extracted from the entry. |
 | `entry` | The field is required and contains the expanded `desc.json` entry with arbitrary fields retained. |
-| `path` | The field is optional and contains a checked package-relative file path using `/` separators. |
-| `manifest` | The field is required for singer and absent for opaque contributions. It contains the referenced singer declaration or inline singer entry. |
+| `path` | The field is required for singer and optional for opaque contributions. It contains a checked package-relative file path using `/` separators. |
+| `manifest` | The field is required for singer and absent for opaque contributions. It contains the referenced singer declaration. |
 | `expanded` | The field is required for singer and absent for opaque contributions. It indicates successful singer declaration expansion. |
 | `name` | The field is optional and available only for singer. An absent singer name defaults to `{"_": id}` after successful expansion. An invalid singer name remains unavailable. |
-| `interface`, `variant` | Each field is optional and available only for singer as an extracted dotted ID. |
-| `level` | The field is optional and available only for singer as a positive JSON integer with arbitrary precision. |
+| `interface`, `variant` | Both fields are required in a successful singer metadata result and contain extracted dotted IDs. They are absent if `metadataError` is present. |
+| `level` | The field is required in a successful singer metadata result and contains a positive JSON integer with arbitrary precision. It is absent if `metadataError` is present. |
+| `metadataError` | The field is required if singer variable expansion or required common field extraction fails. It contains a nonempty error string and is absent from successful singer metadata results and opaque contributions. |
 | `singer` | The field is available after successful singer expansion. It contains optional `avatar`, `background`, and `demoAudio` (`Text`) and can be `{}`. |
 
-A string `path` directly in a `desc.json` contribution entry must reference a regular file inside the package. A non-string `path` in an opaque entry remains uninterpreted entry data and produces no derived `path` field. A non-string singer entry path is rejected.
+A string `path` directly in a `desc.json` contribution entry must reference a regular file inside the package. A non-string `path` in an opaque entry remains uninterpreted entry data and produces no derived `path` field. A missing or non-string singer entry path is rejected. Inline singer declarations are not supported.
 
 Opaque declaration files are not parsed or expanded. Binary data, malformed JSON, duplicate keys, and invalid declaration variables in these files do not affect metadata loading. Opaque entry fields such as `name`, `interface`, `level`, and `variant` remain under `entry` without declaration field extraction, category-specific validation, indexing, or fallback values. Package variable expansion applies to the complete `desc.json`, including opaque entries. Category and ID remain indexed and available in contribution selectors. All resource bytes remain subject to archive integrity checks, content hashing, and extraction limits.
 
-Singer declarations are parsed for metadata extraction. Invalid or unreadable declaration JSON is rejected. Failed variable expansion retains the raw declaration in `manifest`, sets `expanded` to `false`, omits derived fields, and records diagnostics. Individual field extraction failures omit the affected field and produce diagnostics. Singer resource paths, resource contents, imports, exports, and interpreter configuration are not validated.
+Singer declarations are parsed for metadata extraction. Invalid or unreadable declaration JSON is rejected. The source declaration requires `interface`, `level`, and `variant`. Successful extraction returns all three required common fields. A missing or unextractable required field produces `metadataError`, omits all three common fields, and records diagnostics without rejecting the package. The expanded declaration remains available through `manifest`. Other extractable fields, including name and singer resource strings, remain available.
+
+Failed variable expansion retains the raw declaration in `manifest`, sets `expanded` to `false`, includes `metadataError`, and omits all derived fields. Optional field extraction failures omit the affected optional field and produce diagnostics. Singer resource paths, resource contents, imports, exports, and interpreter configuration are not validated.
+
+| `expanded` | `metadataError` | Common module fields | Metadata state |
+| --- | --- | --- | --- |
+| `true` | The field is absent. | All three fields are required. | Required field extraction succeeded. |
+| `true` | The field is present. | All three fields are absent. | Required field extraction failed. |
+| `false` | The field is present. | All three fields are absent. | Variable expansion failed. |
+
+A successful information query can include `metadataError` and `ok: true`. Mutation diagnostics report the same extraction failure without a command failure event.
 
 Full singer `level` uses a JSON number. Indexed summaries and the database use decimal text. Full `level: 2`, summary `level: "2"`, and SQL `level = '2'` represent the same integer.
 

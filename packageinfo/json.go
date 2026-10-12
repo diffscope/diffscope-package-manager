@@ -12,65 +12,13 @@ const MaxJSONBytes = 16 << 20
 const maxJSONDepth = 128
 const maxJSONNodes = 1_000_000
 
-// DecodeJSON implements the specification's UTF-8 JSON-with-comments profile.
+// Decodes a UTF-8 JSON object without a byte order mark or comments.
+// Returns an error for invalid syntax, duplicate keys, or exceeded resource limits.
 func DecodeJSON(data []byte) (map[string]any, error) {
 	if len(data) > MaxJSONBytes || !utf8.Valid(data) {
 		return nil, fmt.Errorf("JSON exceeds limit or is not UTF-8")
 	}
-	data = bytes.TrimPrefix(data, []byte{0xef, 0xbb, 0xbf})
-	clean := append([]byte(nil), data...)
-	quoted, escape := false, false
-	for i := 0; i < len(clean); i++ {
-		c := clean[i]
-		if quoted {
-			if escape {
-				escape = false
-			} else if c == '\\' {
-				escape = true
-			} else if c == '"' {
-				quoted = false
-			}
-			continue
-		}
-		if c == '"' {
-			quoted = true
-			continue
-		}
-		if c != '/' || i+1 == len(clean) {
-			continue
-		}
-		if clean[i+1] == '/' {
-			clean[i], clean[i+1] = ' ', ' '
-			i += 2
-			for i < len(clean) && clean[i] != '\n' && clean[i] != '\r' {
-				clean[i] = ' '
-				i++
-			}
-			i--
-			continue
-		}
-		if clean[i+1] == '*' {
-			clean[i], clean[i+1] = ' ', ' '
-			i += 2
-			found := false
-			for i < len(clean) {
-				if i+1 < len(clean) && clean[i] == '*' && clean[i+1] == '/' {
-					clean[i], clean[i+1] = ' ', ' '
-					i++
-					found = true
-					break
-				}
-				if clean[i] != '\n' && clean[i] != '\r' {
-					clean[i] = ' '
-				}
-				i++
-			}
-			if !found {
-				return nil, fmt.Errorf("unterminated JSON comment")
-			}
-		}
-	}
-	d := json.NewDecoder(bytes.NewReader(clean))
+	d := json.NewDecoder(bytes.NewReader(data))
 	d.UseNumber()
 	nodes := 0
 	value, err := decodeValue(d, 0, &nodes)

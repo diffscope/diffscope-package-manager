@@ -46,7 +46,10 @@ func Index(p packageinfo.PackageManifest, hash, dir string, at int64) Record {
 	for _, c := range p.Contributions {
 		index := ContributionIndex{Category: c.Category, ID: c.ID}
 		if c.Category == "singer" && c.SingerDeclaration != nil {
-			index.Interface, index.Level, index.Variant, index.Name = c.Interface, c.Level.String(), c.Variant, c.Name
+			index.Name = c.Name
+			if c.ModuleMetadata != nil {
+				index.Interface, index.Level, index.Variant = c.Interface, c.Level.String(), c.Variant
+			}
 		}
 		r.Contributions = append(r.Contributions, index)
 	}

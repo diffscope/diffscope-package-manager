@@ -90,6 +90,8 @@ Category and ID identify contributions in installed package summaries and contri
 
 The empty string sentinel for unavailable singer fields is omitted from JSON summaries. A stored singer level is serialized as a JSON string in summaries and as a JSON number in full metadata. SQL text ordering and integer casts do not preserve arbitrary-precision level ordering.
 
+The singer declaration format requires `interface`, `level`, and `variant`. Indexing records these fields together after successful extraction. If required field extraction fails, all three columns contain `''`. Extractable singer names remain indexed. Index sentinels represent unavailable metadata rather than optional source fields. Full information responses report extraction failures through `metadataError`.
+
 ### `package_texts`
 
 Each row records the package text values associated with a language key. Rows use the union of language keys in package name, description, and vendor.
@@ -172,7 +174,7 @@ def content_hash(files):
 
 ## Metadata Ownership
 
-The database is an installation-time management and listing index. `desc.json` retains complete package metadata and opaque entries. Singer declarations retain complete singer metadata. The database excludes declaration bodies, declaration paths, expansion state, license paths, readme paths, URL, singer media fields, and import or export relationships. It also excludes resolved dependency edges, source archive paths, remote repository records, and installed file inventories.
+The database is an installation-time management and listing index. `desc.json` retains complete package metadata and opaque entries. Singer declarations retain complete singer metadata. The database excludes declaration bodies, declaration paths, expansion state, extraction error messages, license paths, readme paths, URL, singer media fields, and import or export relationships. It also excludes resolved dependency edges, source archive paths, remote repository records, and installed file inventories.
 
 Installed package contents are immutable under the management protocol. Replacement uses installation with `--overwrite-existing` if the same identity has different content. External file edits can produce stale indexed metadata, dependencies, and recorded hashes. `list` does not rescan declarations. `info --installed` reopens package and singer metadata without reindexing or recomputing the installed hash. A registered identity mismatch is rejected. Opaque declaration files are not parsed by information queries.
 

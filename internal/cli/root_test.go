@@ -23,7 +23,7 @@ func execute(t *testing.T, args ...string) (string, string, error) {
 }
 func TestLocalSourcesAndJSON(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "packages")
-	filename := testutil.Package(t, "voice", "1", "1", nil, map[string]string{"singer.json": `{"name":{"_":"","zh-CN":"歌手"},"demoAudio":"../../missing"}`})
+	filename := testutil.Package(t, "voice", "1", "1", nil, map[string]string{"singer.json": `{"interface":"example.Singer","level":1,"variant":"v","name":{"_":"","zh-CN":"歌手"},"demoAudio":"../../missing"}`})
 	out, _, err := execute(t, "--json", "--packages-dir", root, "info", "--file", filename)
 	if err != nil {
 		t.Fatal(err)

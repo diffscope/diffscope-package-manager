@@ -51,7 +51,7 @@ func TestOpaqueContributionsThroughLocalWorkflow(t *testing.T) {
 		}
 		for _, c := range response.Data.Package.Contributions {
 			if c.Category == "singer" {
-				if c.SingerDeclaration == nil || c.Name["_"] != "VisibleSinger" || c.Interface != "example.Singer" || c.Level != "2" || c.Variant != "v" || c.Singer == nil || c.Singer.Avatar["_"] != "../../missing.png" {
+				if c.SingerDeclaration == nil || c.ModuleMetadata == nil || c.Name["_"] != "VisibleSinger" || c.Interface != "example.Singer" || c.Level != "2" || c.Variant != "v" || c.Singer == nil || c.Singer.Avatar["_"] != "../../missing.png" || c.MetadataError != "" {
 					t.Fatal("singer metadata lost", c)
 				}
 				continue

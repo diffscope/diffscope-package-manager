@@ -35,6 +35,7 @@ func TestNonSingerDeclarationsAreOpaque(t *testing.T) {
 		}{
 			{"binary", "\xff\x00BINARY"},
 			{"invalid-json", `{"name":`},
+			{"bom-and-comments", "\ufeff{/* comment */\"name\":\"opaque\"}// comment"},
 			{"duplicate-keys", `{"name":"one","name":"two"}`},
 			{"invalid-vars", `{"vars":42,"name":"not indexed"}`},
 			{"valid-json", `{"vars":[{"name":"title","value":"not indexed"}],"name":"${title}","interface":"example.Contract","level":9,"variant":"v","avatar":"outside.png"}`},
@@ -71,7 +72,7 @@ func TestNonSingerDeclarationsAreOpaque(t *testing.T) {
 				if err := json.Unmarshal(data, &wire); err != nil {
 					t.Fatal(err)
 				}
-				for _, field := range []string{"name", "interface", "level", "variant", "manifest", "expanded", "singer"} {
+				for _, field := range []string{"name", "interface", "level", "variant", "manifest", "expanded", "singer", "metadataError"} {
 					if _, exists := wire[field]; exists {
 						t.Fatalf("opaque contribution exposed %s: %s", field, data)
 					}
@@ -127,7 +128,7 @@ func TestOnlySingerDeclarationIsRead(t *testing.T) {
 	if opaque.SingerDeclaration != nil {
 		t.Fatal("singer declaration leaked into opaque contribution", opaque)
 	}
-	if singer.SingerDeclaration == nil || singer.Name["_"] != "Singer" || singer.Interface != "example.Singer" || singer.Level != "2" || singer.Variant != "v" || singer.Singer == nil || singer.Singer.Avatar["_"] != "../../missing.png" || singer.Singer.Background["zh-CN"] != "/outside.png" || singer.Singer.DemoAudio != nil {
+	if singer.SingerDeclaration == nil || singer.ModuleMetadata == nil || singer.Name["_"] != "Singer" || singer.Interface != "example.Singer" || singer.Level != "2" || singer.Variant != "v" || singer.Singer == nil || singer.Singer.Avatar["_"] != "../../missing.png" || singer.Singer.Background["zh-CN"] != "/outside.png" || singer.Singer.DemoAudio != nil || singer.MetadataError != "" {
 		t.Fatal("singer extraction changed", singer)
 	}
 }

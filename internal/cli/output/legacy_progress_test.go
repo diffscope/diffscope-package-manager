@@ -32,19 +32,32 @@ func TestLegacyProgressBarGeometry(t *testing.T) {
 }
 
 func TestLegacyBatchLayout(t *testing.T) {
+	fixture, err := os.ReadFile("testdata/legacy-install-frame.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ReplaceAll(string(fixture), "\r\n", "\n")
+	for _, format := range []struct {
+		name, newline string
+	}{{"LF", "\n"}, {"CRLF", "\r\n"}} {
+		t.Run(format.name, func(t *testing.T) {
+			testLegacyBatchLayout(t, strings.ReplaceAll(text, "\n", format.newline))
+		})
+	}
+}
+
+func testLegacyBatchLayout(t *testing.T, fixture string) {
+	t.Helper()
 	styles := newTextStyles(io.Discard)
 	l := &liveProgress{width: func() int { return 60 }, styles: styles, mode: "extract", rows: []liveRow{
 		{target: "vendor/voice=1.0.0.0", file: "音源/resource.bin", current: 250},
 		{target: "vendor/base=2.0.0.0"},
 	}}
-	want, err := os.ReadFile("testdata/legacy-install-frame.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Ignore only trailing spaces in the text fixture; PTerm's exact suffix
-	// spacing is asserted separately by TestLegacyProgressBarGeometry.
+	// Fixture line endings may be LF or CRLF. Trailing spaces are excluded
+	// because TestLegacyProgressBarGeometry checks the exact bar suffix.
 	actual := l.frame()
-	expected := strings.Split(strings.TrimSuffix(string(want), "\n"), "\n")
+	fixture = strings.ReplaceAll(fixture, "\r\n", "\n")
+	expected := strings.Split(strings.TrimSuffix(fixture, "\n"), "\n")
 	if len(actual) != len(expected) {
 		t.Fatal("batch no longer has a title and bar per package", actual)
 	}

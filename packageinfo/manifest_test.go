@@ -52,15 +52,51 @@ func TestVersionAndSelectors(t *testing.T) {
 	}
 }
 func TestJSONProfile(t *testing.T) {
-	valid := []string{"\ufeff{/* comment */\"x\":\"//not a comment\",// comment\n\"y\":1}", `{"x":{"x":1},"y":{"x":2}}`}
+	valid := []string{
+		`{"url":"https://example.test/path","line":"// literal","block":"/* literal */","escaped":"\"// literal"}`,
+		"{\"literal\":\"\ufeff\",\"escaped\":\"\\ufeff\"}",
+		`{"x":{"x":1},"y":{"x":2}}`,
+	}
 	for _, s := range valid {
 		if _, err := DecodeJSON([]byte(s)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, s := range []string{`{"x":1,"x":2}`, `{"x":{"a":1,"a":2}}`, `{"x":1,}`, `{"x":[1,]}`, `{} {}`, `/* unclosed`, "{\"x\":\"\xff\"}", strings.Repeat("[", 130) + strings.Repeat("]", 130)} {
+	for _, s := range []string{
+		"\ufeff{}", " \ufeff{}", "{}\ufeff",
+		"// comment\n{}", "{\"x\":1,// comment\n\"y\":2}", "{}// comment",
+		`/* comment */{}`, `{"x":/* comment */1}`, `{"x":[1,/* comment */2]}`, `{}/* comment */`,
+		`{"x":1,"x":2}`, `{"x":{"a":1,"a":2}}`, `{"x":1,}`, `{"x":[1,]}`, `{} {}`, `/* unclosed`,
+		"{\"x\":\"\xff\"}", strings.Repeat("[", 130) + strings.Repeat("]", 130),
+	} {
 		if _, err := DecodeJSON([]byte(s)); err == nil {
 			t.Fatalf("accepted %q", s)
+		}
+	}
+}
+
+func TestParsedDeclarationsRejectBOMAndComments(t *testing.T) {
+	desc := `{"$version":"1","runtimeLevel":1,"id":"voice","version":"1","contributions":{"singer":[{"id":"main","path":"singer.json"}]}}`
+	singer := `{"interface":"example.Singer","level":1,"variant":"v"}`
+	for _, invalid := range []struct {
+		name   string
+		prefix string
+		suffix string
+	}{
+		{"bom", "\ufeff", ""},
+		{"line-comment", "// comment\n", ""},
+		{"block-comment", "/* comment */", ""},
+		{"trailing-line-comment", "", "// comment"},
+		{"trailing-block-comment", "", "/* comment */"},
+	} {
+		for _, file := range []string{"desc.json", "singer.json"} {
+			t.Run(file+"/"+invalid.name, func(t *testing.T) {
+				files := manifestFS(desc, map[string]string{"singer.json": singer})
+				files[file].Data = []byte(invalid.prefix + string(files[file].Data) + invalid.suffix)
+				if _, err := Load(files, t.TempDir()); err == nil {
+					t.Fatal("accepted invalid declaration JSON")
+				}
+			})
 		}
 	}
 }
@@ -68,7 +104,7 @@ func TestVariablesAndTransparentContributions(t *testing.T) {
 	root := t.TempDir()
 	desc := `{"$version":"1","runtimeLevel":1,"id":"vendor/voice","version":"2","compatVersion":"1","vars":[{"name":"base","value":"PACKAGE"},{"name":"pinned","value":"${base}"},{"name":"selector","value":"base"},{"name":"d","value":"$"}],"vendor":{"_":"","Odd locale":"V"},"extension":{"kept":"${pinned}"},"contributions":{"com.example.data":[{"id":"a","path":"${root}/data.json"},{"id":"b","path":"data.json"}],"singer":[{"id":"a","path":"data.json"},{"id":"b","path":"data.json"},{"id":"voice","path":"singer.json"}]}}`
 	declaration := `{"vars":[{"name":"base","value":"MODULE"}],"name":{"_":"","ZH-cn":"A","zh-CN":"B"},"interface":"com.example.Contract","level":12,"variant":"x","scope":"${base}/${pinned}/${${selector}}","literal":"${d}{base}/$${base}","imports":false,"configuration":{"arbitrary":null}}`
-	singer := `{"name":"S","avatar":"../../outside.png","background":25,"demoAudio":["old.wav"],"imports":[{"garbage":true}],"interface":7}`
+	singer := `{"name":"S","interface":"example.Singer","level":1,"variant":"v","avatar":"../../outside.png","background":25,"demoAudio":["old.wav"],"imports":[{"garbage":true}]}`
 	p, err := Load(manifestFS(desc, map[string]string{"data.json": declaration, "singer.json": singer}), root)
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +138,7 @@ func TestVariablesAndTransparentContributions(t *testing.T) {
 func TestDirectReferencesOnly(t *testing.T) {
 	root := t.TempDir()
 	base := `{"$version":"1","runtimeLevel":1,"id":"a","version":"1",%s}`
-	for _, field := range []string{`"readme":"../outside"`, `"readme":"missing"`, `"contributions":{"singer":[{"id":"a","path":"../outside.json"}]}`, `"contributions":{"singer":[{"id":"a","path":"missing.json"}]}`, `"contributions":{"singer":[{"id":"a","path":null}]}`, `"contributions":{"inference":[{"id":"a","path":"../outside.bin"}]}`, `"contributions":{"com.example.data":[{"id":"a","path":"missing.bin"}]}`} {
+	for _, field := range []string{`"readme":"../outside"`, `"readme":"missing"`, `"contributions":{"singer":[{"id":"a"}]}`, `"contributions":{"singer":[{"id":"a","path":"../outside.json"}]}`, `"contributions":{"singer":[{"id":"a","path":"missing.json"}]}`, `"contributions":{"singer":[{"id":"a","path":null}]}`, `"contributions":{"inference":[{"id":"a","path":"../outside.bin"}]}`, `"contributions":{"com.example.data":[{"id":"a","path":"missing.bin"}]}`} {
 		if _, err := Load(manifestFS(fmt.Sprintf(base, field), nil), root); err == nil {
 			t.Fatal("accepted", field)
 		}
@@ -134,8 +170,8 @@ func TestPackageValidation(t *testing.T) {
 }
 func TestIntegerNumbersAndUnknownVarsObjects(t *testing.T) {
 	for _, level := range []string{"1", "1.0", "1e0", "10e-1"} {
-		desc := fmt.Sprintf(`{"$version":"1","runtimeLevel":%s,"id":"a","version":"1","vars":[{"name":"x","value":"expanded"}],"extension":{"vars":{"value":"${x}"}},"contributions":{"singer":[{"id":"a","level":1e2}]}}`, level)
-		p, err := Load(manifestFS(desc, nil), t.TempDir())
+		desc := fmt.Sprintf(`{"$version":"1","runtimeLevel":%s,"id":"a","version":"1","vars":[{"name":"x","value":"expanded"}],"extension":{"vars":{"value":"${x}"}},"contributions":{"singer":[{"id":"a","path":"singer.json"}]}}`, level)
+		p, err := Load(manifestFS(desc, map[string]string{"singer.json": `{"interface":"example.Singer","level":1e2,"variant":"v"}`}), t.TempDir())
 		if err != nil {
 			t.Fatal(level, err)
 		}

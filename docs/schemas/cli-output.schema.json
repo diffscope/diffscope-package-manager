@@ -123,6 +123,16 @@
       },
       "description": "The object contains extracted singer resource strings and can be empty. Resource paths, media formats, and referenced files are not validated."
     },
+    "moduleMetadata": {
+      "type": "object",
+      "required": ["interface", "level", "variant"],
+      "properties": {
+        "interface": { "$ref": "#/$defs/dottedId" },
+        "level": { "type": "integer", "minimum": 1 },
+        "variant": { "$ref": "#/$defs/dottedId" }
+      },
+      "description": "The object contains all required common module metadata fields. It represents successful extraction rather than a partial result."
+    },
     "contribution": {
       "type": "object",
       "required": ["category", "id", "entry"],
@@ -133,6 +143,7 @@
         "entry": { "type": "object", "description": "The object retains the expanded desc.json contribution entry and arbitrary fields. A non-string path in an opaque entry remains uninterpreted category data." },
         "manifest": { "type": "object", "description": "The object contains the singer declaration. The expanded flag distinguishes expanded metadata from a raw declaration retained after expansion failure. The field is absent for opaque contributions." },
         "expanded": { "type": "boolean", "description": "The value indicates successful singer declaration expansion. The field is absent for opaque contributions." },
+        "metadataError": { "type": "string", "minLength": 1, "description": "The value reports failed variable expansion or unavailable required singer metadata fields. All three common module fields are absent in this failure state. The field is absent after successful extraction and for opaque contributions." },
         "name": { "$ref": "#/$defs/text", "description": "The object contains the extracted singer name or the contribution ID if no name is declared. The field is absent for opaque contributions." },
         "interface": { "$ref": "#/$defs/dottedId", "description": "The value is an interface ID extracted from singer metadata." },
         "level": { "type": "integer", "minimum": 1, "description": "The value is a positive arbitrary-precision integer extracted from singer metadata." },
@@ -140,13 +151,33 @@
         "singer": { "$ref": "#/$defs/singer" }
       },
       "if": { "properties": { "category": { "const": "singer" } } },
-      "then": { "required": ["manifest", "expanded"] },
+      "then": {
+        "required": ["path", "manifest", "expanded"],
+        "oneOf": [
+          {
+            "$ref": "#/$defs/moduleMetadata",
+            "properties": { "expanded": { "const": true } },
+            "not": { "required": ["metadataError"] }
+          },
+          {
+            "required": ["metadataError"],
+            "not": { "anyOf": [
+              { "required": ["interface"] }, { "required": ["level"] },
+              { "required": ["variant"] }
+            ] }
+          }
+        ],
+        "if": { "properties": { "expanded": { "const": false } } },
+        "then": {
+          "not": { "anyOf": [{ "required": ["name"] }, { "required": ["singer"] }] }
+        }
+      },
       "else": {
         "not": { "anyOf": [
           { "required": ["name"] }, { "required": ["interface"] },
           { "required": ["level"] }, { "required": ["variant"] },
           { "required": ["manifest"] }, { "required": ["expanded"] },
-          { "required": ["singer"] }
+          { "required": ["singer"] }, { "required": ["metadataError"] }
         ] }
       }
     },
@@ -167,7 +198,7 @@
         "license": { "$ref": "#/$defs/filePaths" },
         "readme": { "$ref": "#/$defs/filePaths" },
         "url": { "type": "string", "description": "The value is the website string after variable expansion. An explicit empty string is retained. The field is omitted if absent." },
-        "manifest": { "type": "object", "description": "The object contains expanded desc.json with vars removed. Arbitrary package fields and JSON types are retained. Source formatting and comments are excluded." },
+        "manifest": { "type": "object", "description": "The object contains expanded desc.json with vars removed. Arbitrary package fields and JSON types are retained. Source formatting is not retained." },
         "diagnostics": { "$ref": "#/$defs/diagnosticArray" }
       }
     },

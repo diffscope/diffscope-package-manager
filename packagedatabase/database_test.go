@@ -61,7 +61,7 @@ func TestOpaqueIndexAndConstraints(t *testing.T) {
 	p := packageinfo.PackageManifest{Identity: packageinfo.Identity{ID: "voice", Version: v("1")}, Contributions: []packageinfo.Contribution{{
 		Category: "inference", ID: "note", Entry: map[string]any{"name": "EntryName"},
 		// Even a caller-supplied declaration must not cross the category boundary.
-		SingerDeclaration: &packageinfo.SingerDeclaration{Name: packageinfo.Text{"_": "Hidden"}, Interface: "hidden.Contract", Variant: "hidden"},
+		SingerDeclaration: &packageinfo.SingerDeclaration{Name: packageinfo.Text{"_": "Hidden"}, ModuleMetadata: &packageinfo.ModuleMetadata{Interface: "hidden.Contract", Level: "1", Variant: "hidden"}},
 	}}}
 	r := Index(p, "hash", "dir", 123)
 	if !reflect.DeepEqual(r.Contributions, []ContributionIndex{{Category: "inference", ID: "note"}}) {
