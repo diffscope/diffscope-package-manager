@@ -182,7 +182,7 @@ func TestWindowsConsoleInstallPackAndInterrupt(t *testing.T) {
 	}
 	output, exit = consoleRun(t, "", args...)
 	bar := regexp.MustCompile(`\d+%`)
-	if exit != 0 || !bar.MatchString(output) || !strings.Contains(output, "█") || !strings.Contains(output, "console=1.0.0.0: extracting") || !strings.Contains(output, "other=1.0.0.0: extracting") || strings.Contains(output, "Verifying") || !strings.Contains(output, "2 installed") {
+	if exit != 0 || !bar.MatchString(output) || !strings.Contains(output, "█") || !strings.Contains(output, "console=1.0.0.0: extracting") || !strings.Contains(output, "other=1.0.0.0: extracting") || strings.Contains(output, "Verifying") || !strings.Contains(output, "installed: 2") {
 		t.Fatal("interactive install missing feedback", exit, output)
 	}
 	entries, err = os.ReadDir(root)

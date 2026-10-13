@@ -33,6 +33,9 @@ Published binaries require recorded platform, architecture, source revision, and
 
 ```sh
 dspm info vendor/voice
+dspm info --versions vendor/voice
+dspm download vendor/voice=1.0 --output ./archives
+dspm --offline install vendor/voice=1.0
 dspm install vendor/voice=1.0
 dspm install --file ./voice.dspk ./base.dspk
 dspm install --file-only ./voice.dspk ./base.dspk
@@ -45,6 +48,8 @@ dspm remove base=1.0 --cascade
 dspm pack ./voice --output ./voice.dspk
 ```
 
+`download` exports verified archives and their complete dependency collection without reading the installation database. `--offline` requires cached repository metadata and archives and prohibits network requests. `info --versions` lists available versions from the selected source.
+
 `install` and `info` use remote sources unless a local source flag is present. `install --file` reads explicit archives and obtains missing dependencies remotely. `install --file-only` uses explicit archives and installed dependencies without configuration, registry, or download cache access. Adjacent archives are not scanned. `info --file` reads an archive. `info --installed` reads registered metadata.
 
 Package selectors use `id=version`. Contribution selectors use `id=version:category/contribution-id`. Versions contain four nonnegative integer components. An abbreviated version such as `1.2` normalizes to `1.2.0.0`. Identity comparison is case-sensitive. Multiple versions of a package can coexist.
@@ -53,7 +58,7 @@ An unversioned remote selector selects the highest numeric version in the first 
 
 Installation skips identities with identical recorded content. Different content under the same identity requires `--overwrite-existing`. Removal requires a compatible remaining provider for every dependent package. `--cascade` includes dependents that would otherwise become invalid. Packages absent from the database are unmanaged.
 
-`install`, `remove`, and `pack` support `--dry-run`. Remote installation dry runs validate metadata without downloading archives. Local installation dry runs validate explicit archives. Queries and dry runs may recover an interrupted transaction in an existing store. Empty queries and dry runs do not initialize a database.
+`install`, `download`, `remove`, and `pack` support `--dry-run`. Remote installation dry runs validate metadata without downloading archives. Local installation dry runs validate explicit archives. Queries and dry runs may recover an interrupted transaction in an existing store. Empty queries and dry runs do not initialize a database.
 
 ## Repositories and cache
 
@@ -78,7 +83,7 @@ The [remote operations reference](docs/remote-operations.md) specifies configura
 
 `--language` controls text translation selection. Explicit empty translations remain empty. JSON preserves every language key. `--language '*'` displays all translations in text mode. `list --columns` accepts `id,version,name,vendor,description,installed-at,hash,directory,compat-version`. `--column` aliases `--columns`. `ls` aliases `list`. `rm` and `uninstall` alias `remove`.
 
-Interactive output includes phase progress and a parallel download table. Downloads with known totals display progress bars and percentages. Downloads with unknown totals display animated indicators and received byte counts. `--progress plain` disables terminal control sequences. `--progress none` suppresses progress rendering. JSON output retains progress events. Ctrl+C cancels active operations. Store recovery removes uncommitted staging on subsequent access.
+Interactive output includes phase progress and parallel download progress. Downloads with known totals display progress bars and percentages. Downloads with unknown totals display animated indicators and received byte counts. `--progress plain` disables terminal control sequences. `--progress none` suppresses progress rendering. JSON output retains progress events. Ctrl+C cancels active operations. Store recovery removes uncommitted staging on subsequent access.
 
 The [CLI interoperability reference](docs/interoperability.md) specifies payloads, events, progress, diagnostics, and the [output JSON Schema](docs/schemas/cli-output.schema.json). The [installed database reference](docs/installed-database.md) specifies storage, locking, recovery, and SQL integration.
 

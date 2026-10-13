@@ -16,13 +16,16 @@ type Registry struct {
 	URL  string `json:"url"`
 }
 type Remote struct {
-	ConfigurationVersion int             `json:"configurationVersion"`
-	Registries           []Registry      `json:"registries"`
-	CacheDir             string          `json:"cacheDir,omitempty"`
-	DownloadConcurrency  int             `json:"downloadConcurrency,omitempty"`
-	MaxDownloadBytes     int64           `json:"maxDownloadBytes,omitempty"`
-	AllowedDownloadHosts []string        `json:"allowedDownloadHosts,omitempty"`
-	SourceRules          []registry.Rule `json:"sourceRules,omitempty"`
+	ConfigurationVersion   int             `json:"configurationVersion"`
+	Registries             []Registry      `json:"registries"`
+	CacheDir               string          `json:"cacheDir,omitempty"`
+	Offline                bool            `json:"-"`
+	DownloadTimeoutSeconds int             `json:"downloadTimeoutSeconds,omitempty"`
+	DownloadRetries        int             `json:"downloadRetries"`
+	DownloadConcurrency    int             `json:"downloadConcurrency,omitempty"`
+	MaxDownloadBytes       int64           `json:"maxDownloadBytes,omitempty"`
+	AllowedDownloadHosts   []string        `json:"allowedDownloadHosts,omitempty"`
+	SourceRules            []registry.Rule `json:"sourceRules,omitempty"`
 }
 
 func DefaultCacheDir() string {
@@ -45,7 +48,7 @@ func ConfigFile() string {
 // Loading does not write configuration. Flag overrides precede environment
 // conflict checks. Source lists replace the complete configured list.
 func LoadRemote(configFile string, registries []string, registryFlag bool, cache string, cacheFlag bool, concurrency int, concurrencyFlag bool) (Remote, error) {
-	r := Remote{ConfigurationVersion: 1, Registries: []Registry{{Name: "ovcpr", URL: "https://ovcpr.diffscope.org/packages/"}}, CacheDir: DefaultCacheDir(), DownloadConcurrency: 4, MaxDownloadBytes: 64 << 30}
+	r := Remote{ConfigurationVersion: 1, Registries: []Registry{{Name: "ovcpr", URL: "https://ovcpr.diffscope.org/packages/"}}, CacheDir: DefaultCacheDir(), DownloadConcurrency: 4, DownloadTimeoutSeconds: 7200, DownloadRetries: 3, MaxDownloadBytes: 64 << 30}
 	if configFile == "" {
 		configFile = ConfigFile()
 	}

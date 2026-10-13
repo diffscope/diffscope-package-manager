@@ -54,7 +54,7 @@ func ServeRepository(t *testing.T, archives ...string) *Repository {
 			t.Fatal(err)
 		}
 		raw, _ := os.ReadFile(f)
-		m, _, err := repo.BuildManifest(p, repo.Publication{DownloadURL: "https://example.org/f", DownloadSha512: repo.Sha512(raw)}, nil)
+		m, _, err := repo.BuildManifest(p, repo.Publication{DownloadURL: "https://example.org/f", DownloadSha512: repo.Sha512(raw), DownloadSize: int64(len(raw))}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -15,7 +15,7 @@ import (
 	"github.com/pterm/pterm"
 )
 
-func TestDownloadTableFoldsDoneAndFitsTerminal(t *testing.T) {
+func TestDownloadTableFitsTerminal(t *testing.T) {
 	var out bytes.Buffer
 	live := newLiveProgress(&out, func() int { return 55 }, newTextStyles(&out))
 	live.height = func() int { return 4 }
@@ -60,7 +60,29 @@ func TestDownloadBarsAndUnknownSize(t *testing.T) {
 	}
 	known.State = "done"
 	if frame = live.frame(); len(frame) != 3 || !strings.Contains(frame[0], "1/2 completed") || !strings.HasPrefix(frame[1], unknown.Target) {
-		t.Fatal("The completed download was not folded into the summary.", frame)
+		t.Fatal("The active frame includes a terminal download.", frame)
+	}
+}
+
+func TestDownloadTerminalRecordsRemainOutsideLiveFrame(t *testing.T) {
+	var out bytes.Buffer
+	live := newLiveProgress(&out, func() int { return 80 }, newTextStyles(&out))
+	live.height = func() int { return 4 }
+	for _, id := range []string{"alpha", "beta", "gamma", "delta"} {
+		live.download(download.Progress{TaskID: id, Target: id, State: "start", Status: "queued", CacheStatus: "miss"})
+	}
+	for _, id := range []string{"alpha", "beta", "gamma", "delta"} {
+		live.download(download.Progress{TaskID: id, Target: id, State: "done", Status: "completed", Current: 1024, Total: 1024, TotalKnown: true, CacheStatus: "miss"})
+	}
+	live.close()
+	text := ansi.Strip(out.String())
+	for _, id := range []string{"alpha", "beta", "gamma", "delta"} {
+		if strings.Count(text, id+"  completed") != 1 {
+			t.Fatal("A terminal download record is missing or repeated.", text)
+		}
+	}
+	if strings.Count(text, "100%") != 4 || !strings.Contains(text, "4/4 completed") {
+		t.Fatal("Completed downloads lack retained full progress bars.", text)
 	}
 }
 

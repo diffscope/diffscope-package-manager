@@ -12,6 +12,7 @@ import (
 	"github.com/diffscope/diffscope-package-manager/internal/netpolicy"
 	"github.com/diffscope/diffscope-package-manager/internal/registry"
 	"github.com/diffscope/diffscope-package-manager/packagearchive"
+	"github.com/diffscope/diffscope-package-manager/packagedatabase"
 	dep "github.com/diffscope/diffscope-package-manager/packagedependency"
 	"github.com/diffscope/diffscope-package-manager/packageinfo"
 	repo "github.com/diffscope/diffscope-package-manager/packagerepository"
@@ -58,9 +59,12 @@ func (s *remoteSession) initialize(ctx context.Context) error {
 		return nil
 	}
 	if s.cache == nil {
-		c, err := downloadcache.Open(ctx, s.settings.CacheDir, s.packagesRoot, true)
+		c, err := downloadcache.Open(ctx, s.settings.CacheDir, s.packagesRoot, !s.settings.Offline)
 		if err != nil {
 			return err
+		}
+		if c == nil {
+			return failure("OFFLINE_CACHE_MISS", fmt.Errorf("The download cache is absent: %s.", s.settings.CacheDir))
 		}
 		s.cache = c
 		if err = c.Lease(ctx); err != nil {
@@ -73,6 +77,7 @@ func (s *remoteSession) initialize(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		source.Offline = s.settings.Offline
 		s.sources = append(s.sources, source)
 	}
 	return nil
@@ -121,7 +126,7 @@ func remoteFailure(err error) error {
 		return err
 	}
 	code := "DOWNLOAD_FAILED"
-	for _, c := range []string{"REPOSITORY_INCONSISTENT", "INVALID_REMOTE_MANIFEST", "UNSUPPORTED_REPOSITORY_FORMAT", "DOWNLOAD_POLICY_VIOLATION", "INVALID_CACHE_DIRECTORY", "CACHE_BUSY", "NONPORTABLE_METADATA", "INPUT_CHANGED", "DOWNLOAD_TIMEOUT", "RATE_LIMITED", "DISK_FULL"} {
+	for _, c := range []string{"OFFLINE_CACHE_MISS", "REPOSITORY_INCONSISTENT", "INVALID_REMOTE_MANIFEST", "UNSUPPORTED_REPOSITORY_FORMAT", "DOWNLOAD_POLICY_VIOLATION", "INVALID_CACHE_DIRECTORY", "CACHE_BUSY", "NONPORTABLE_METADATA", "INPUT_CHANGED", "DOWNLOAD_TIMEOUT", "RATE_LIMITED", "DISK_FULL"} {
 		if strings.Contains(err.Error(), c) {
 			code = c
 			break
@@ -220,9 +225,12 @@ type preparedPackage struct {
 	CompatVersion     packageinfo.Version      `json:"compatVersion"`
 	Dependencies      []packageinfo.Dependency `json:"dependencies"`
 	SourceKind        string                   `json:"sourceKind"`
+	Action            string                   `json:"action"`
+	ArchiveSource     string                   `json:"archiveSource"`
 	AuthoritySourceID string                   `json:"authoritySourceId,omitempty"`
 	ManifestSha512    string                   `json:"manifestSha512,omitempty"`
 	DownloadSha512    string                   `json:"downloadSha512,omitempty"`
+	DownloadSize      int64                    `json:"downloadSize,omitempty"`
 	ContentTreeSha512 string                   `json:"contentTreeSha512,omitempty"`
 }
 
@@ -256,9 +264,13 @@ type ResolutionPlan struct {
 }
 
 func (m *Manager) InstallRemote(ctx context.Context, request RemoteRequest, observer Observer) (MutationResult, error) {
+	return m.acquireRemote(ctx, request, "", observer)
+}
+
+func (m *Manager) acquireRemote(ctx context.Context, request RemoteRequest, destination string, observer Observer) (MutationResult, error) {
 	result := MutationResult{Actions: []Action{}, DryRun: request.DryRun}
 	if len(request.Targets) == 0 {
-		return result, failure("INVALID_ARGUMENT", fmt.Errorf("At least one installation target is required."))
+		return result, failure("INVALID_ARGUMENT", fmt.Errorf("At least one package target is required."))
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -301,7 +313,9 @@ func (m *Manager) InstallRemote(ctx context.Context, request RemoteRequest, obse
 		if err != nil {
 			return result, err
 		}
+		emit(observer, "inspect_start", request.Targets)
 		for _, filename := range request.Targets {
+			progress, inspected := beginProgress(observer, "inspect", filename)
 			a, err := packagearchive.Open(filename, m.Limits)
 			if err != nil {
 				return result, failure("INVALID_PACKAGE", err)
@@ -316,27 +330,38 @@ func (m *Manager) InstallRemote(ctx context.Context, request RemoteRequest, obse
 				return result, failure("CONFLICT", fmt.Errorf("The batch contains a duplicate package identity %s.", v.manifest.String()))
 			}
 			localMap[v.manifest.String()] = true
-			v.hash, err = a.Hash(ctx)
+			v.hash, err = a.HashWithProgress(ctx, progress)
 			if err != nil {
 				return result, failure("INVALID_PACKAGE", err)
 			}
+			inspected()
+			emit(observer, "inspect_ok", v.manifest.Identity)
 			locals = append(locals, candidateOf(v.manifest))
 		}
 	}
 	// A bounded retry repeats planning after a concurrent store change. Network
 	// activity happens only after the short snapshot session has been closed.
 	for storeRound := 0; storeRound < 3; storeRound++ {
-		store, err := openStore(ctx, m.Root, false, observer)
-		if err != nil {
-			return result, err
-		}
-		existing, err := store.Records()
-		diagnostics := append([]string{}, store.Diagnostics...)
-		store.Close()
-		if err != nil {
-			return result, err
+		var existing []packagedatabase.Record
+		diagnostics := []string{}
+		var err error
+		if destination == "" {
+			store, openErr := openStore(ctx, m.Root, false, observer)
+			if openErr != nil {
+				return result, openErr
+			}
+			existing, err = store.Records()
+			diagnostics = append(diagnostics, store.Diagnostics...)
+			store.Close()
+			if err != nil {
+				return result, err
+			}
 		}
 		installed := candidates(existing)
+		installedHashes := map[string]string{}
+		for _, record := range existing {
+			installedHashes[record.String()] = record.Hash
+		}
 		for _, input := range inputs {
 			for _, old := range existing {
 				if old.String() == input.manifest.String() && old.Hash != input.hash && !request.Overwrite {
@@ -380,7 +405,7 @@ func (m *Manager) InstallRemote(ctx context.Context, request RemoteRequest, obse
 				for _, raw := range request.Targets {
 					t, err := packageinfo.ParseSelector(raw)
 					if err != nil || t.Category != "" {
-						return failure("INVALID_ARGUMENT", fmt.Errorf("The installation selector %s is invalid.", raw))
+						return failure("INVALID_ARGUMENT", fmt.Errorf("The package selector %s is invalid.", raw))
 					}
 					key := t.ID
 					if t.Version != nil {
@@ -404,7 +429,6 @@ func (m *Manager) InstallRemote(ctx context.Context, request RemoteRequest, obse
 					roots = append(roots, r.Manifest.Identity)
 				}
 			}
-			decisions := []acquisition{}
 			// Refuse an unrelated pre-existing missing dependency. A batch can
 			// replace its requester or explicitly provide the missing package,
 			// but an ordinary install must not initiate a whole-store repair.
@@ -444,9 +468,7 @@ func (m *Manager) InstallRemote(ctx context.Context, request RemoteRequest, obse
 							continue
 						}
 						processed[decisionKey] = true
-						provider, found := dep.Select(locals, d)
-						kind := "local"
-						sourceID := ""
+						_, found := dep.Select(locals, d)
 						if !found {
 							filtered := []dep.Candidate{}
 							for _, v := range installed {
@@ -454,8 +476,7 @@ func (m *Manager) InstallRemote(ctx context.Context, request RemoteRequest, obse
 									filtered = append(filtered, v)
 								}
 							}
-							provider, found = dep.Select(filtered, d)
-							kind = "installed"
+							_, found = dep.Select(filtered, d)
 						}
 						if !found {
 							r, err := s.resolve(planningCtx, d.ID, nil, &d.Version)
@@ -467,15 +488,41 @@ func (m *Manager) InstallRemote(ctx context.Context, request RemoteRequest, obse
 								return err
 							}
 							changed = changed || !already
-							provider = remoteCandidate(r.Manifest)
-							sourceID = r.Source.ID
-							kind = "remote"
 						}
-						decisions = append(decisions, acquisition{c.Identity, d, provider.Identity, kind, sourceID})
 					}
 				}
 				if !changed {
 					break
+				}
+			}
+			allCandidates := []dep.Candidate{}
+			for _, c := range current {
+				allCandidates = append(allCandidates, c)
+			}
+			needed := map[string]bool{}
+			queue := []string{}
+			for _, root := range roots {
+				needed[root.String()] = true
+				queue = append(queue, root.String())
+			}
+			for _, old := range installed {
+				if !needed[old.String()] {
+					needed[old.String()] = true
+					queue = append(queue, old.String())
+				}
+			}
+			for i := 0; i < len(queue); i++ {
+				for _, required := range current[queue[i]].Dependencies {
+					if provider, ok := dep.Select(allCandidates, required); ok && !needed[provider.String()] {
+						needed[provider.String()] = true
+						queue = append(queue, provider.String())
+					}
+				}
+			}
+			for key := range selected {
+				if !needed[key] {
+					delete(selected, key)
+					delete(current, key)
 				}
 			}
 			all := []dep.Candidate{}
@@ -486,19 +533,58 @@ func (m *Manager) InstallRemote(ctx context.Context, request RemoteRequest, obse
 			if err != nil {
 				return failure("DEPENDENCY_ERROR", err)
 			}
+			decisions := []acquisition{}
+			for _, edge := range graph.Edges {
+				kind, sourceID := "installed", ""
+				if remote, ok := selected[edge.Provider.String()]; ok {
+					kind, sourceID = "remote", remote.Source.ID
+				} else if localMap[edge.Provider.String()] {
+					kind = "local"
+				}
+				decisions = append(decisions, acquisition{edge.Requester, edge.Required, edge.Provider, kind, sourceID})
+			}
 			plan = ResolutionPlan{OperationID: operationID, InstalledSnapshotFingerprint: snapshotFingerprint(existing), VerificationScope: "metadata-only", Sources: []registry.Source{}, SourceOrder: []string{}, Roots: roots, Packages: []preparedPackage{}, AcquisitionDecisions: decisions, EffectiveEdges: graph.Edges, PendingArchiveChecks: []packageinfo.Identity{}, NetworkPolicy: s.policy.Name(), RepositoryConformance: s.policy.Conformance()}
 			for _, candidate := range graph.Nodes {
-				item := preparedPackage{Identity: candidate.Identity, CompatVersion: candidate.CompatVersion, Dependencies: candidate.Dependencies, SourceKind: "installed"}
+				item := preparedPackage{Identity: candidate.Identity, CompatVersion: candidate.CompatVersion, Dependencies: candidate.Dependencies, SourceKind: "installed", Action: "keep", ArchiveSource: "none"}
 				if r, ok := selected[candidate.String()]; ok {
 					item.SourceKind = "remote"
+					item.Action = "install"
+					if destination != "" {
+						item.Action = "download"
+					}
+					item.ArchiveSource = "download"
+					blob, _, _, err := s.cache.Paths(r.Manifest.DownloadSha512)
+					if err != nil {
+						return err
+					}
+					if _, err := s.cache.Root.Stat(blob); err == nil {
+						item.ArchiveSource = "cache"
+					} else if !os.IsNotExist(err) {
+						return err
+					}
+					if _, ok := completed[candidate.String()]; ok {
+						item.ArchiveSource = "prepared"
+					}
+					if _, exists := installedHashes[candidate.String()]; exists {
+						item.Action = "check"
+					}
 					item.AuthoritySourceID = r.Source.ID
 					item.ManifestSha512 = r.ManifestSha512
 					item.DownloadSha512 = r.Manifest.DownloadSha512
+					item.DownloadSize = r.Manifest.DownloadSize
 				} else if localMap[candidate.String()] {
 					item.SourceKind = "local"
+					item.Action = "install"
+					item.ArchiveSource = "local"
 					for _, input := range inputs {
 						if input.manifest.String() == candidate.String() {
 							item.ContentTreeSha512 = input.hash
+							if oldHash, exists := installedHashes[candidate.String()]; exists {
+								item.Action = "overwrite"
+								if oldHash == input.hash {
+									item.Action = "skip"
+								}
+							}
 						}
 					}
 				} else {
@@ -569,6 +655,11 @@ func (m *Manager) InstallRemote(ctx context.Context, request RemoteRequest, obse
 			engine = download.New(s.cache, s.policy, func(p download.Progress) { emit(observer, "progress", p) })
 			engine.OperationID = operationID
 			engine.MaxBytes = request.Settings.MaxDownloadBytes
+			engine.Offline = request.Settings.Offline
+			if request.Settings.DownloadTimeoutSeconds > 0 {
+				engine.Timeout = time.Duration(request.Settings.DownloadTimeoutSeconds) * time.Second
+			}
+			engine.Retries = request.Settings.DownloadRetries
 		}
 		keys := []string{}
 		for key := range selected {
@@ -673,6 +764,10 @@ func (m *Manager) InstallRemote(ctx context.Context, request RemoteRequest, obse
 				closePrepared()
 				return result, err
 			}
+			if st.Size() != r.Manifest.DownloadSize {
+				closePrepared()
+				return result, failure("DOWNLOAD_SIZE_MISMATCH", fmt.Errorf("The archive size differs from the manifest for %s.", r.Manifest.String()))
+			}
 			fileDigest, err := packagearchive.HashFileBytes(ctx, f, st.Size(), nil)
 			if err != nil || fileDigest != r.Manifest.DownloadSha512 {
 				closePrepared()
@@ -710,6 +805,21 @@ func (m *Manager) InstallRemote(ctx context.Context, request RemoteRequest, obse
 			if r.Manifest.Deprecated {
 				diagnostics = append(diagnostics, "PACKAGE_DEPRECATED: "+r.Manifest.String()+": "+r.Manifest.DeprecationReason)
 			}
+		}
+		if destination != "" {
+			for i, input := range prepared {
+				action, exportErr := exportArchive(ctx, destination, input, selected[keys[i]].Manifest)
+				if exportErr != nil {
+					closePrepared()
+					return result, exportErr
+				}
+				result.Actions = append(result.Actions, action)
+				emit(observer, "result", action)
+			}
+			closePrepared()
+			result.Diagnostics = diagnostics
+			emit(observer, "summary", map[string]any{"actions": result.Actions, "dryRun": false, "sources": plan.Sources, "downloadStats": outcomes, "diagnosticDetails": append(diagnosticDetails, downloadDiagnostics(outcomes)...), "diagnostics": diagnostics})
+			return result, nil
 		}
 		files := []string{}
 		for _, v := range prepared {

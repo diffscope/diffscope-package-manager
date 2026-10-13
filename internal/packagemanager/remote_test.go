@@ -3,6 +3,7 @@ package packagemanager
 import (
 	"context"
 	"github.com/diffscope/diffscope-package-manager/internal/config"
+	"github.com/diffscope/diffscope-package-manager/internal/downloadcache"
 	"github.com/diffscope/diffscope-package-manager/internal/testutil"
 	"net/http"
 	"os"
@@ -42,15 +43,28 @@ func TestRemoteDependencyBarrierCacheAndInfo(t *testing.T) {
 	}
 	dry.DryRun = false
 	commits := 0
+	plans := 0
 	result, err := manager.InstallRemote(ctx, dry, func(e Event) {
+		if e.Event == "resolution_plan" {
+			plans++
+			plan := e.Data.(ResolutionPlan)
+			if len(plan.Packages) != 2 || server.Count("/archives/base/2.0.0.0") != 0 || server.Count("/archives/foo/bar/1.0.0.0") != 0 {
+				t.Error("The complete installation plan did not precede archive downloads.")
+			}
+			for _, p := range plan.Packages {
+				if p.ArchiveSource != "download" {
+					t.Error("The plan does not identify a required download.", p)
+				}
+			}
+		}
 		if e.Event == "progress" {
 			if p, ok := e.Data.(Progress); ok && p.Phase == "commit" && p.State == "done" {
 				commits++
 			}
 		}
 	})
-	if err != nil || len(result.Actions) != 2 || commits != 1 {
-		t.Fatal(result, commits, err)
+	if err != nil || len(result.Actions) != 2 || commits != 1 || plans != 1 {
+		t.Fatal(result, commits, plans, err)
 	}
 	if server.Count("/archives/base/2.0.0.0") != 1 {
 		t.Fatal("dependency not downloaded")
@@ -60,6 +74,68 @@ func TestRemoteDependencyBarrierCacheAndInfo(t *testing.T) {
 	}
 	if server.Count("/archives/foo/bar/1.0.0.0") != 1 {
 		t.Fatal("cache hit made archive GET")
+	}
+}
+
+func TestRemotePlanCacheAndLocalArchiveSources(t *testing.T) {
+	ctx := context.Background()
+	base := testutil.Package(t, "base", "1", "1", nil, nil)
+	voice := testutil.Package(t, "voice", "1", "1", []map[string]string{{"id": "base", "version": "1"}}, nil)
+	server := testutil.ServeRepository(t, base)
+	settings := remoteSettings(t, server.Server.URL)
+	manager := New(filepath.Join(t.TempDir(), "packages"))
+	request := RemoteRequest{Targets: []string{"base"}, Settings: settings, Unrestricted: true}
+	if _, err := manager.InstallRemote(ctx, request, nil); err != nil {
+		t.Fatal(err)
+	}
+	archivePath := "/archives/base/1.0.0.0"
+	for _, corrupt := range []bool{false, true} {
+		if corrupt {
+			cache, err := downloadcache.Open(ctx, settings.CacheDir, manager.Root, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, manifest := range server.Manifests {
+				blob, _, _, err := cache.Paths(manifest.DownloadSha512)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := cache.Root.WriteFile(blob, []byte("invalid archive"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cache.Close()
+		}
+		manager = New(filepath.Join(t.TempDir(), "packages"))
+		request.Targets, request.File = []string{voice}, true
+		announced := false
+		before := server.Count(archivePath)
+		_, err := manager.InstallRemote(ctx, request, func(e Event) {
+			if e.Event != "resolution_plan" {
+				return
+			}
+			announced = true
+			plan := e.Data.(ResolutionPlan)
+			if len(plan.Packages) != 2 || server.Count(archivePath) != before {
+				t.Error("The cache and local archive plan did not precede acquisition.")
+			}
+			for _, p := range plan.Packages {
+				want := "cache"
+				if p.ID == "voice" {
+					want = "local"
+				}
+				if p.ArchiveSource != want {
+					t.Error("The archive source is incorrect.", p)
+				}
+			}
+		})
+		wantRequests := before
+		if corrupt {
+			wantRequests++
+		}
+		if err != nil || !announced || server.Count(archivePath) != wantRequests {
+			t.Fatal("Cache reuse or invalid cache recovery failed.", err, server.Count(archivePath), wantRequests)
+		}
 	}
 }
 func TestRemoteFailureHasNoPartialInstallation(t *testing.T) {

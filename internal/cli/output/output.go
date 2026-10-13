@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/diffscope/diffscope-package-manager/internal/packagemanager"
+	repo "github.com/diffscope/diffscope-package-manager/packagerepository"
 )
 
 type ReportedError struct{ error }
@@ -36,6 +37,7 @@ type Renderer struct {
 	errStyle            *textStyles
 	packFiles           int
 	packBytes           int64
+	remoteInstall       bool
 	live                *liveProgress
 	progressInitialized bool
 	lastProgress        packagemanager.Progress
@@ -167,6 +169,15 @@ func (r *Renderer) Query(data any, diagnostics []string) error {
 		switch v := data.(type) {
 		case packagemanager.Info:
 			r.info(v)
+		case repo.VersionsIndex:
+			r.section("Available versions")
+			for _, entry := range v.Versions {
+				suffix := ""
+				if entry.Deprecated {
+					suffix = " [deprecated]"
+				}
+				r.printf("  %s%s\n", r.styles().identity.Render(v.ID+"="+entry.Version.String()), suffix)
+			}
 		case packagemanager.RemoteInfo:
 			r.remoteInfo(v)
 		case []packagemanager.InstalledPackage:

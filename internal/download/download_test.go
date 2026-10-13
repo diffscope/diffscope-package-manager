@@ -3,6 +3,7 @@ package download
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/diffscope/diffscope-package-manager/internal/downloadcache"
 	"github.com/diffscope/diffscope-package-manager/internal/netpolicy"
@@ -28,6 +29,44 @@ func cacheFor(t *testing.T) *downloadcache.Cache {
 	}
 	t.Cleanup(func() { c.Close() })
 	return c
+}
+
+func TestConfiguredAcquisitionTimeout(t *testing.T) {
+	file := testutil.Package(t, "voice", "1", "1", nil, nil)
+	server := testutil.ServeRepository(t, file)
+	server.ArchiveHandler = func(w http.ResponseWriter, r *http.Request, data []byte) { <-r.Context().Done() }
+	engine := New(cacheFor(t), netpolicy.Policy{Unrestricted: true}, nil)
+	defer engine.Close()
+	engine.Timeout = 50 * time.Millisecond
+	authority := registry.Resolved{Manifest: server.Manifests["voice=1.0.0.0"]}
+	started := time.Now()
+	_, _, err := engine.Acquire(context.Background(), authority, nil)
+	var timeout *Error
+	if !errors.As(err, &timeout) || timeout.Code != "DOWNLOAD_TIMEOUT" || time.Since(started) > 2*time.Second {
+		t.Fatal(err)
+	}
+}
+
+func TestArchiveSizeMismatchCannotPublishCacheBlob(t *testing.T) {
+	file := testutil.Package(t, "voice", "1", "1", nil, nil)
+	server := testutil.ServeRepository(t, file)
+	authority := registry.Resolved{Manifest: server.Manifests["voice=1.0.0.0"]}
+	authority.Manifest.DownloadSize++
+	cache := cacheFor(t)
+	engine := New(cache, netpolicy.Policy{Unrestricted: true}, nil)
+	defer engine.Close()
+	_, _, err := engine.Acquire(context.Background(), authority, nil)
+	var failure *Error
+	if !errors.As(err, &failure) || failure.Code != "DOWNLOAD_SIZE_MISMATCH" {
+		t.Fatal(err)
+	}
+	blob, _, _, err := cache.Paths(authority.Manifest.DownloadSha512)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = cache.Root.Stat(blob); !os.IsNotExist(err) {
+		t.Fatal("A mismatched archive was published.", err)
+	}
 }
 func partialServer(w http.ResponseWriter, r *http.Request, b []byte) {
 	w.Header().Set("Content-Length", fmt.Sprint(len(b)))

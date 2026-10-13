@@ -26,7 +26,7 @@ func fixture(t *testing.T) repo.RemoteManifest {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(f)
-	m, _, err := repo.BuildManifest(p, repo.Publication{DownloadURL: "https://example.org/release.dspk", DownloadSha512: repo.Sha512(raw)}, nil)
+	m, _, err := repo.BuildManifest(p, repo.Publication{DownloadURL: "https://example.org/release.dspk", DownloadSha512: repo.Sha512(raw), DownloadSize: int64(len(raw))}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +57,30 @@ func TestSingerLevelIntegerProtocol(t *testing.T) {
 		if _, err = repo.DecodeManifest(b, repo.ManifestDecodeOptions{}); err == nil {
 			t.Fatal("An invalid singer level was accepted.", invalid)
 		}
+	}
+}
+
+func TestRequiredArchiveByteCount(t *testing.T) {
+	m := fixture(t)
+	raw, err := repo.MarshalManifest(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err = json.Unmarshal(raw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []any{nil, 0, -1, 1.5, "123"} {
+		wire["downloadSize"] = invalid
+		body, _ := json.Marshal(wire)
+		if _, err = repo.DecodeManifest(body, repo.ManifestDecodeOptions{}); err == nil {
+			t.Fatal(invalid)
+		}
+	}
+	delete(wire, "downloadSize")
+	body, _ := json.Marshal(wire)
+	if _, err = repo.DecodeManifest(body, repo.ManifestDecodeOptions{}); err == nil {
+		t.Fatal("An archive byte count was not required.")
 	}
 }
 func TestStrictWireFormat(t *testing.T) {
@@ -91,7 +115,7 @@ func TestProjectionPortableAssetsAndSinger(t *testing.T) {
 	if p.Metadata.License["_"] != "LICENSE" {
 		t.Fatal(p)
 	}
-	m, mapping, err := repo.BuildManifest(p, repo.Publication{DownloadURL: "https://example.org/f", DownloadSha512: strings.Repeat("a", 128)}, repo.AssetLayout{"LICENSE": "shared/LICENSE"})
+	m, mapping, err := repo.BuildManifest(p, repo.Publication{DownloadURL: "https://example.org/f", DownloadSha512: strings.Repeat("a", 128), DownloadSize: 123}, repo.AssetLayout{"LICENSE": "shared/LICENSE"})
 	if err != nil {
 		t.Fatal(err)
 	}

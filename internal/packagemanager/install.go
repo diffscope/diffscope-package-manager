@@ -42,7 +42,6 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest, observer 
 		}
 	}()
 	identities := map[string]bool{}
-	emit(observer, "inspect_start", request.Files)
 	virtualRoot, err := filepath.Abs(m.Root)
 	if err != nil {
 		return result, err
@@ -50,6 +49,9 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest, observer 
 	inspectFiles := request.Files
 	if request.prepared != nil {
 		inspectFiles = nil
+	}
+	if len(inspectFiles) > 0 {
+		emit(observer, "inspect_start", inspectFiles)
 	}
 	for _, filename := range inspectFiles {
 		if err := ctx.Err(); err != nil {
@@ -150,7 +152,7 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest, observer 
 				continue
 			}
 			progress, extracted := beginProgress(observer, "extract", input.manifest.String())
-			stage, p, err := s.StageWithProgress(ctx, input.archive, progress)
+			stage, p, hash, err := s.StageAndHash(ctx, input.archive, progress)
 			if err != nil {
 				return result, failure("INVALID_PACKAGE", err)
 			}
@@ -159,11 +161,7 @@ func (m *Manager) Install(ctx context.Context, request InstallRequest, observer 
 				return result, failure("INVALID_PACKAGE", fmt.Errorf("The package identity changed during staging."))
 			}
 			extracted()
-			progress, verified := beginProgress(observer, "verify", p.String())
-			hash, err := s.StagedHashWithProgress(ctx, stage, m.Limits, progress)
-			if err != nil {
-				return result, err
-			}
+			_, verified := beginProgress(observer, "verify", p.String())
 			if hash != input.hash {
 				return result, failure("INVALID_PACKAGE", fmt.Errorf("The package bytes changed during staging."))
 			}

@@ -40,6 +40,7 @@ type RemoteManifest struct {
 	PackageMetadata
 	DownloadURL       string `json:"downloadUrl"`
 	DownloadSha512    string `json:"downloadSha512"`
+	DownloadSize      int64  `json:"downloadSize"`
 	Deprecated        bool   `json:"deprecated,omitempty"`
 	DeprecationReason string `json:"deprecationReason,omitempty"`
 }
@@ -267,11 +268,14 @@ func DecodeManifest(raw []byte, o ManifestDecodeOptions) (RemoteManifest, error)
 	if err != nil {
 		return m, err
 	}
-	if err = required(r, "repositoryFormatVersion", "id", "version", "compatVersion", "downloadUrl", "downloadSha512", "dependencies", "singers"); err != nil {
+	if err = required(r, "repositoryFormatVersion", "id", "version", "compatVersion", "downloadUrl", "downloadSha512", "downloadSize", "dependencies", "singers"); err != nil {
 		return m, err
 	}
 	if m.RepositoryFormatVersion != 1 {
 		return m, fmt.Errorf("UNSUPPORTED_REPOSITORY_FORMAT: The repository format version is unsupported.")
+	}
+	if m.DownloadSize <= 0 {
+		return m, fmt.Errorf("The download size must be a positive byte count.")
 	}
 	if !validID(m.ID) || m.CompatVersion.Compare(m.Version) > 0 || !IsDigest(m.DownloadSha512) {
 		return m, fmt.Errorf("The identity, compatibility version, or digest is invalid.")

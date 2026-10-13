@@ -32,6 +32,7 @@ type ProjectionOptions struct{ Limits ProjectionLimits }
 type Publication struct {
 	DownloadURL    string
 	DownloadSha512 string
+	DownloadSize   int64
 }
 type AssetLayout map[string]string
 type AssetMapping struct {
@@ -163,7 +164,7 @@ func ProjectFS(ctx context.Context, files fs.FS, o ProjectionOptions) (Projectio
 	return a, nil
 }
 func BuildManifest(p Projection, pub Publication, layout AssetLayout) (RemoteManifest, []AssetMapping, error) {
-	m := RemoteManifest{RepositoryFormatVersion: 1, PackageMetadata: normalize(p.Metadata), DownloadURL: pub.DownloadURL, DownloadSha512: pub.DownloadSha512}
+	m := RemoteManifest{RepositoryFormatVersion: 1, PackageMetadata: normalize(p.Metadata), DownloadURL: pub.DownloadURL, DownloadSha512: pub.DownloadSha512, DownloadSize: pub.DownloadSize}
 	m.License = nil
 	m.Readme = nil
 	assets := []AssetMapping{}
@@ -241,7 +242,7 @@ func CompareMetadata(m RemoteManifest, p Projection) ([]Difference, error) {
 // Replica URLs and asset paths may differ. Identities, archive digests, and language sets must match.
 func SameContent(a, b RemoteManifest) bool {
 	d, err := CompareMetadata(a, Projection{Metadata: b.PackageMetadata})
-	return err == nil && len(d) == 0 && a.DownloadSha512 == b.DownloadSha512
+	return err == nil && len(d) == 0 && a.DownloadSha512 == b.DownloadSha512 && a.DownloadSize == b.DownloadSize
 }
 func Differences(expected, actual any) []Difference {
 	toValue := func(v any) any {

@@ -277,12 +277,13 @@ func (r *Renderer) textEvent(event packagemanager.Event) {
 		return // Inspection progress completion ends the active spinner.
 	case "plan":
 		if actions, ok := event.Data.([]packagemanager.Action); ok && r.Command == "install" {
-			for _, action := range actions {
-				if action.Action == "skip" {
-					r.printf("%s\n", styles.warning.Render(action.Package.String()+" is already installed with the same hash; skipping"))
-				}
-				if action.Action == "overwrite" {
-					r.printf("%s\n", styles.warning.Render(action.Package.String()+" is already installed with a different hash; will overwrite"))
+			if !r.remoteInstall {
+				r.localInstallPlan(actions)
+			} else {
+				for _, action := range actions {
+					if action.Action == "skip" || action.Action == "overwrite" {
+						r.printf("  %s [%s]\n", styles.identity.Render(action.Package.String()), action.Action)
+					}
 				}
 			}
 			if !r.DryRun && r.live != nil {
@@ -322,9 +323,22 @@ func (r *Renderer) textEvent(event packagemanager.Event) {
 		return // Extraction bars remain visible until result rendering.
 	case "result":
 		if action, ok := event.Data.(packagemanager.Action); ok {
+			if r.Command == "download" {
+				status := "downloaded"
+				if action.Action == "skip" {
+					status = "skipped"
+				}
+				r.printf("%s %s [%s]\n", styles.success.Render("✓"), styles.identity.Render(action.Package.String()), status)
+				r.field("  ", "File", action.File)
+				return
+			}
 			hash := ""
 			if action.Hash != "" {
-				hash = " [hash=" + action.Hash + "]"
+				digest := action.Hash
+				if len(digest) > 8 {
+					digest = digest[:8] + "…"
+				}
+				hash = " [hash=" + digest + "]"
 			}
 			if r.DryRun {
 				r.printf("%s %s [%s]%s\n", styles.warning.Render("[DRY RUN]"), styles.identity.Render(action.Package.String()), action.Action, hash)
@@ -349,6 +363,12 @@ func (r *Renderer) textEvent(event packagemanager.Event) {
 		}
 	case "summary":
 		if summary, ok := event.Data.(packagemanager.MutationResult); ok {
+			if r.Command == "install" {
+				if !r.remoteInstall {
+					r.installSummary(summary.Actions, summary.DryRun)
+				}
+				return
+			}
 			label := "Summary"
 			if summary.DryRun {
 				label += " (dry run)"
@@ -357,11 +377,7 @@ func (r *Renderer) textEvent(event packagemanager.Event) {
 			for _, action := range summary.Actions {
 				counts[action.Action]++
 			}
-			if r.Command == "install" {
-				r.field("", label, fmt.Sprintf("%d installed, %d overwritten, %d skipped", counts["install"], counts["overwrite"], counts["skip"]))
-			} else {
-				r.field("", label, fmt.Sprintf("%d removed (%d by cascade), %d ignored", counts["remove"]+counts["cascade"], counts["cascade"], len(summary.Ignored)))
-			}
+			r.field("", label, fmt.Sprintf("%d removed (%d by cascade), %d ignored", counts["remove"]+counts["cascade"], counts["cascade"], len(summary.Ignored)))
 		}
 	}
 }

@@ -120,6 +120,9 @@ type Engine struct {
 	Client      *http.Client
 	MaxBytes    int64
 	IdleTimeout time.Duration
+	Timeout     time.Duration
+	Retries     int
+	Offline     bool
 	OperationID string
 	mu          sync.Mutex
 	sequence    int64
@@ -134,7 +137,7 @@ type Engine struct {
 func New(c *downloadcache.Cache, p netpolicy.Policy, observe func(Progress)) *Engine {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
-	return &Engine{Cache: c, Policy: p, Client: p.Client(false), MaxBytes: 64 << 30, IdleTimeout: 60 * time.Second, OperationID: hex.EncodeToString(b), cooldown: map[string]time.Time{}, Observe: observe}
+	return &Engine{Cache: c, Policy: p, Client: p.Client(false), MaxBytes: 64 << 30, IdleTimeout: 60 * time.Second, Timeout: 2 * time.Hour, Retries: 3, OperationID: hex.EncodeToString(b), cooldown: map[string]time.Time{}, Observe: observe}
 }
 func (e *Engine) Close() {
 	e.Client.CloseIdleConnections()
@@ -233,7 +236,7 @@ var unsatisfiedPattern = regexp.MustCompile(`^bytes \*/([0-9]+)$`)
 
 func protocol(reason string) error { return &Error{"DOWNLOAD_PROTOCOL_ERROR", reason, nil} }
 func (e *Engine) Acquire(ctx context.Context, authority registry.Resolved, discover func(context.Context) (*registry.Resolved, error)) (filename string, out Outcome, finalErr error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
+	ctx, cancel := context.WithTimeout(ctx, e.Timeout)
 	defer cancel()
 	m := authority.Manifest
 	p := Progress{Phase: "download", ProgressVersion: 1, OperationID: e.OperationID, TaskID: netpolicy.Key(m.String()), TransportID: netpolicy.Key(e.OperationID + m.String()), Package: m.Identity, Target: m.String(), AuthoritySourceID: authority.Source.ID, NetworkPolicy: e.Policy.Name(), CacheStatus: "miss"}
@@ -289,6 +292,9 @@ func (e *Engine) Acquire(ctx context.Context, authority registry.Resolved, disco
 	e.emit(&p, "update", "checking-cache")
 	if digest, err := hash(ctx, e.Cache.Root, blob); err == nil && digest == m.DownloadSha512 {
 		st, _ := e.Cache.Root.Stat(blob)
+		if st.Size() != m.DownloadSize {
+			return "", out, &Error{"DOWNLOAD_SIZE_MISMATCH", fmt.Sprintf("The cached archive size differs from the manifest for %s.", m.String()), out}
+		}
 		p.Current = st.Size()
 		p.Total = p.Current
 		p.TotalKnown = true
@@ -299,6 +305,9 @@ func (e *Engine) Acquire(ctx context.Context, authority registry.Resolved, disco
 		return filepath.Join(e.Cache.Root.Name(), filepath.FromSlash(blob)), out, nil
 	} else if err == nil {
 		_ = e.Cache.Root.Remove(blob)
+	}
+	if e.Offline {
+		return "", out, &Error{"OFFLINE_CACHE_MISS", fmt.Sprintf("The verified archive is not cached: %s.", m.String()), out}
 	}
 	if err = e.Cache.Root.MkdirAll(path.Dir(partial), 0700); err != nil {
 		return "", out, err
@@ -628,6 +637,9 @@ func (e *Engine) Acquire(ctx context.Context, authority registry.Resolved, disco
 		}
 		complete, transferErr := transfer()
 		if complete && transferErr == nil {
+			if p.Current != m.DownloadSize {
+				return "", out, &Error{"DOWNLOAD_SIZE_MISMATCH", fmt.Sprintf("The archive size differs from the manifest for %s.", m.String()), out}
+			}
 			if !ephemeral {
 				if err = e.Cache.Root.MkdirAll(path.Dir(blob), 0700); err != nil {
 					return "", out, err
@@ -696,7 +708,7 @@ func (e *Engine) Acquire(ctx context.Context, authority registry.Resolved, disco
 				retryable, _ = d["retryable"].(bool)
 			}
 		}
-		if retryable && retries < 3 && attemptsBySource[p.SourceID] == 1 {
+		if retryable && retries < e.Retries && attemptsBySource[p.SourceID] == 1 {
 			retries++
 			p.RetryInMs = int64(200 * retries)
 			p.Reason = safeError(transferErr)
@@ -743,7 +755,7 @@ func (e *Engine) Acquire(ctx context.Context, authority registry.Resolved, disco
 			break
 		}
 		if next == nil {
-			if retryable && retries < 3 {
+			if retryable && retries < e.Retries {
 				retries++
 				p.RetryInMs = int64(200 * retries)
 				p.Reason = safeError(transferErr)
@@ -758,7 +770,7 @@ func (e *Engine) Acquire(ctx context.Context, authority registry.Resolved, disco
 				p.RetryInMs = 0
 				continue
 			}
-			return "", out, &Error{"DOWNLOAD_SOURCES_EXHAUSTED", "All permitted download sources failed.", out}
+			return "", out, &Error{"DOWNLOAD_SOURCES_EXHAUSTED", fmt.Sprintf("Download failed for %s: %s", m.String(), safeError(transferErr)), out}
 		}
 		previous := p.SourceID
 		out.SourceHistory = append(out.SourceHistory, previous)

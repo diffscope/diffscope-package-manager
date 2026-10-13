@@ -38,6 +38,17 @@ func (l *liveProgress) download(p download.Progress) {
 		index = len(l.rows) - 1
 	}
 	l.rows[index].download = &p
+	if p.State == "done" || p.State == "failed" || p.State == "cancelled" {
+		// Terminal records precede the live frame so subsequent refreshes retain them.
+		if l.drawnLines > 0 {
+			l.write(fmt.Sprintf("\x1b[%dF\x1b[J", l.drawnLines))
+			l.drawnLines = 0
+		}
+		width := max(1, l.width())
+		status := ansi.Hardwrap(downloadStatus(&p), width, true)
+		l.write(strings.ReplaceAll(status, "\n", "\r\n") + "\r\n")
+		l.write(ansi.Truncate(l.downloadIndicator(&p, width), width, "") + "\r\n")
+	}
 	if p.State != "update" || time.Since(l.lastDraw) >= 100*time.Millisecond {
 		l.draw()
 	}
@@ -73,18 +84,7 @@ func (l *liveProgress) downloadFrame(width int) []string {
 		visible = max(0, (limit-2)/2)
 	}
 	for _, p := range active[:visible] {
-		total, eta := "unknown MiB", ""
-		if p.TotalKnown {
-			total = fmt.Sprintf("%.1f MiB", float64(p.Total)/(1<<20))
-		}
-		if p.ETASeconds != nil {
-			eta = fmt.Sprintf(" ETA %.0fs", *p.ETASeconds)
-		}
-		line := fmt.Sprintf("%s  %s  %.1f/%s  %.1f KiB/s%s [%s]", p.Target, p.Status, float64(p.Current)/(1<<20), total, p.BytesPerSecond/1024, eta, p.CacheStatus)
-		if p.State == "retry" {
-			line += fmt.Sprintf(" retry in %dms", p.RetryInMs)
-		}
-		lines = append(lines, safeText(line))
+		lines = append(lines, downloadStatus(p))
 		lines = append(lines, l.downloadIndicator(p, width))
 	}
 	if visible < len(active) && len(lines) < limit {
@@ -96,13 +96,31 @@ func (l *liveProgress) downloadFrame(width int) []string {
 	return lines
 }
 
+func downloadStatus(p *download.Progress) string {
+	total, eta := "unknown MiB", ""
+	if p.TotalKnown {
+		total = fmt.Sprintf("%.1f MiB", float64(p.Total)/(1<<20))
+	}
+	if p.ETASeconds != nil && p.State != "done" {
+		eta = fmt.Sprintf(" ETA %.0fs", *p.ETASeconds)
+	}
+	line := fmt.Sprintf("%s  %s  %.1f/%s  %.1f KiB/s%s [%s]", p.Target, p.Status, float64(p.Current)/(1<<20), total, p.BytesPerSecond/1024, eta, p.CacheStatus)
+	if p.State == "retry" {
+		line += fmt.Sprintf(" retry in %dms", p.RetryInMs)
+	}
+	return safeText(line)
+}
+
 func (l *liveProgress) downloadIndicator(p *download.Progress, width int) string {
-	if !p.TotalKnown || p.Total <= 0 {
+	if p.State != "done" && (!p.TotalKnown || p.Total <= 0) {
 		sequence := pterm.DefaultSpinner.Sequence
 		index := int(time.Since(l.started)/pterm.DefaultSpinner.Delay) % len(sequence)
 		return sequence[index] + " Total size unknown."
 	}
-	current := int(min(1, max(0, float64(p.Current)/float64(p.Total))) * 1000)
+	current := 1000
+	if p.State != "done" {
+		current = int(min(1, max(0, float64(p.Current)/float64(p.Total))) * 1000)
+	}
 	if width < 8 {
 		return fmt.Sprintf("%3d%%", current/10)
 	}

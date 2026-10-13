@@ -15,7 +15,7 @@ import (
 	"github.com/diffscope/diffscope-package-manager/internal/testutil"
 )
 
-func executeInfo(t *testing.T, args ...string) (string, string, error) {
+func executeCLI(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
 	if executable := os.Getenv("DSPM_TEST_CLI_BINARY"); executable != "" {
 		var out, errOut bytes.Buffer
@@ -51,7 +51,7 @@ func TestInfoRemoteArchiveAndInstalledParity(t *testing.T) {
 	flags := []string{"--packages-dir", filepath.Join(root, "packages"), "--cache-dir", filepath.Join(root, "cache"), "--config", filepath.Join(root, "absent-config.json"), "--progress", "none"}
 	invoke := func(name string, args ...string) string {
 		t.Helper()
-		out, errOut, err := executeInfo(t, append(append([]string{}, flags...), args...)...)
+		out, errOut, err := executeCLI(t, append(append([]string{}, flags...), args...)...)
 		if directory := os.Getenv("DSPM_TEST_INFO_CAPTURE_DIR"); directory != "" {
 			if err := os.MkdirAll(directory, 0755); err != nil {
 				t.Fatal(err)
@@ -79,7 +79,7 @@ func TestInfoRemoteArchiveAndInstalledParity(t *testing.T) {
 			t.Fatal("Remote information has inconsistent sections.", positions, remote)
 		}
 	}
-	for _, text := range []string{"  ID: vendor/voice\n", "  Version: 2.0.0.0\n", "  CompatVersion: 1.0.0.0\n", "  Description: \n", "Dependencies\n  base=1.0.0.0", "Singers\n  main\n", "    Level: " + level, "  other\n", "  SHA-512:", "  Size: unknown"} {
+	for _, text := range []string{"  ID: vendor/voice\n", "  Version: 2.0.0.0\n", "  CompatVersion: 1.0.0.0\n", "  Description: \n", "Dependencies\n  base=1.0.0.0", "Singers\n  main\n", "    Level: " + level, "  other\n", "  SHA-512:", "  Size: 2.2 KiB"} {
 		if !strings.Contains(remote, text) {
 			t.Fatalf("Remote information omitted %q:\n%s", text, remote)
 		}
@@ -228,7 +228,7 @@ func TestInfoRemoteArchiveAndInstalledParity(t *testing.T) {
 		t.Fatal("Empty remote metadata does not identify its scope.", empty)
 	}
 	for _, selector := range []string{"vendor/voice:singer/missing", "vendor/voice:vendor.custom/lexicon"} {
-		out, _, err := executeInfo(t, append(append([]string{}, flags...), "--json", "info", selector)...)
+		out, _, err := executeCLI(t, append(append([]string{}, flags...), "--json", "info", selector)...)
 		code := "NOT_FOUND"
 		if strings.Contains(selector, "vendor.custom") {
 			code = "UNSUPPORTED_REMOTE_CONTRIBUTION"

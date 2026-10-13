@@ -2,8 +2,10 @@ package output
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/diffscope/diffscope-package-manager/internal/packagemanager"
+	"github.com/diffscope/diffscope-package-manager/packageinfo"
 	"strings"
 	"unicode"
 )
@@ -40,12 +42,32 @@ func (r *Renderer) remoteInfo(v packagemanager.RemoteInfo) {
 	r.section("Download")
 	r.field("  ", "URL", p.DownloadURL)
 	r.field("  ", "SHA-512", p.DownloadSha512)
-	r.field("  ", "Size", "unknown")
+	r.field("  ", "Size", byteCount(p.DownloadSize))
 }
 func (r *Renderer) remoteEvent(e packagemanager.Event) bool {
+	if r.Command == "download" && e.Event == "summary" {
+		if summary, ok := e.Data.(map[string]any); ok {
+			if r.DryRun {
+				r.field("", "Summary (dry run)", "The download plan is complete. No archives were exported.")
+			} else {
+				actions, _ := summary["actions"].([]packagemanager.Action)
+				downloaded, skipped := 0, 0
+				for _, action := range actions {
+					if action.Action == "skip" {
+						skipped++
+					} else {
+						downloaded++
+					}
+				}
+				r.field("", "Summary", fmt.Sprintf("Archive export is complete (exported: %d, skipped: %d).", downloaded, skipped))
+			}
+		}
+		return true
+	}
 	if e.Event == "resolution_plan" {
 		if plan, ok := e.Data.(packagemanager.ResolutionPlan); ok {
-			r.printf("Preparation includes %d package candidates and %d archives requiring verification. Network policy: %s.\n", len(plan.Packages), len(plan.PendingArchiveChecks), plan.NetworkPolicy)
+			r.remoteInstall = true
+			r.remoteInstallPlan(plan)
 		}
 		return true
 	}
@@ -55,10 +77,12 @@ func (r *Renderer) remoteEvent(e packagemanager.Event) bool {
 	}
 	if e.Event == "summary" {
 		if summary, ok := e.Data.(map[string]any); ok && r.Command == "install" {
-			if verification, ok := summary["verification"]; ok {
-				r.printf("The dry run is complete with verification scope %v. Archive checks remain pending.\n", verification)
+			if _, ok := summary["verification"]; ok {
+				pending, _ := summary["pendingArchiveChecks"].([]packageinfo.Identity)
+				r.field("", "Summary (dry run)", fmt.Sprintf("Archive validation is pending (archives: %d). No packages were installed.", len(pending)))
 			} else {
-				r.printf("Summary: commit %v\n", summary["commitOutcome"])
+				actions, _ := summary["actions"].([]packagemanager.Action)
+				r.installSummary(actions, false)
 			}
 			return true
 		}
@@ -75,4 +99,18 @@ func (r *Renderer) remoteEvent(e packagemanager.Event) bool {
 		return true
 	}
 	return false
+}
+
+func byteCount(n int64) string {
+	units := []string{"bytes", "KiB", "MiB", "GiB", "TiB"}
+	value := float64(n)
+	i := 0
+	for value >= 1024 && i < len(units)-1 {
+		value /= 1024
+		i++
+	}
+	if i == 0 {
+		return fmt.Sprintf("%d bytes", n)
+	}
+	return fmt.Sprintf("%.1f %s", value, units[i])
 }

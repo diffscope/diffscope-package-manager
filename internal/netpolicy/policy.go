@@ -93,7 +93,7 @@ func (p Policy) Validate(raw string) error {
 }
 func (p Policy) Client(metadata bool) *http.Client {
 	dialer := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
-	t := &http.Transport{DisableCompression: true, MaxConnsPerHost: 2, MaxIdleConns: 32, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 15 * time.Second, ResponseHeaderTimeout: 30 * time.Second}
+	t := &http.Transport{DisableCompression: true, MaxIdleConns: 32, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 15 * time.Second, ResponseHeaderTimeout: 30 * time.Second}
 	var trustedProxies sync.Map
 	if !p.DisableProxy {
 		t.Proxy = func(req *http.Request) (*url.URL, error) {

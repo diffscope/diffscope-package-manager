@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var version = "0.0.0+dev"
@@ -48,6 +49,9 @@ func NewRootCommand() *cobra.Command {
 	root.PersistentFlags().StringVar(&o.CacheDir, "cache-dir", "", "Set the download cache root.")
 	root.PersistentFlags().StringVar(&o.ConfigFile, "config", "", "Select the user configuration file.")
 	root.PersistentFlags().IntVar(&o.Concurrency, "download-concurrency", 4, "Set concurrent archive tasks to a value from 1 to 16.")
+	root.PersistentFlags().BoolVar(&o.Offline, "offline", false, "Use cached repository metadata and archives without network requests.")
+	root.PersistentFlags().DurationVar(&o.DownloadTimeout, "download-timeout", 2*time.Hour, "Set the total time limit for each archive acquisition.")
+	root.PersistentFlags().IntVar(&o.DownloadRetries, "download-retries", 3, "Set the number of additional transient transfer attempts.")
 	root.PersistentFlags().BoolVar(&o.Unrestricted, "allow-unrestricted-downloads", false, "Permit HTTP and all destination addresses for this invocation. TLS and content verification remain enabled.")
 	root.PersistentFlags().StringVar(&o.Progress, "progress", "auto", "Select auto, plain, or none for text progress.")
 	commands.Add(root, o)
@@ -67,7 +71,7 @@ func ExecuteCommand(root *cobra.Command) error {
 	}
 	structured, _ := root.PersistentFlags().GetBool("json")
 	name := strings.TrimPrefix(cmd.CommandPath(), root.Name()+" ")
-	mutation := name == "install" || name == "remove" || name == "pack" || name == "repo create" || name == "cache clean"
+	mutation := name == "install" || name == "download" || name == "remove" || name == "pack" || name == "repo create" || name == "cache clean"
 	r := &output.Renderer{Command: name, JSON: structured, Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(), Mutation: mutation}
 	r.EnableTerminal()
 	return r.Finish(&packagemanager.Error{Code: "INVALID_ARGUMENT", Message: err.Error(), Cause: err})

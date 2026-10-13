@@ -8,18 +8,22 @@ import (
 	"github.com/diffscope/diffscope-package-manager/internal/packagemanager"
 	"github.com/spf13/cobra"
 	"path/filepath"
+	"time"
 )
 
 type Options struct {
-	PackagesDir  string
-	JSON         bool
-	Language     string
-	CacheDir     string
-	ConfigFile   string
-	Registries   []string
-	Concurrency  int
-	Unrestricted bool
-	Progress     string
+	PackagesDir     string
+	JSON            bool
+	Language        string
+	CacheDir        string
+	ConfigFile      string
+	Registries      []string
+	Concurrency     int
+	Offline         bool
+	DownloadTimeout time.Duration
+	DownloadRetries int
+	Unrestricted    bool
+	Progress        string
 }
 
 func renderer(cmd *cobra.Command, o *Options, mutation bool) *output.Renderer {
@@ -31,7 +35,33 @@ func renderer(cmd *cobra.Command, o *Options, mutation bool) *output.Renderer {
 	return r
 }
 func Add(root *cobra.Command, o *Options) {
-	root.AddCommand(install(o), remove(o), info(o), list(o), pack(o), repository(o), cache(o))
+	root.AddCommand(install(o), downloadPackages(o), remove(o), info(o), list(o), pack(o), repository(o), cache(o))
+}
+func downloadPackages(o *Options) *cobra.Command {
+	var directory string
+	var dry bool
+	c := &cobra.Command{Use: "download <package>...", Short: "Package archive and dependency download", Args: cobra.MinimumNArgs(1)}
+	c.Flags().StringVarP(&directory, "output", "o", ".", "Select the archive export directory.")
+	c.Flags().BoolVar(&dry, "dry-run", false, "Preview archive acquisition without downloading or exporting files.")
+	c.RunE = func(cmd *cobra.Command, args []string) error {
+		r := renderer(cmd, o, true)
+		defer r.Close()
+		settings, err := remoteSettings(cmd, o)
+		if err != nil {
+			return r.Finish(err)
+		}
+		ctx, cancel := context.WithCancel(cmd.Context())
+		defer cancel()
+		result, err := packagemanager.New(o.PackagesDir).Download(ctx, packagemanager.DownloadRequest{Targets: args, Directory: directory, DryRun: dry, Settings: settings, Unrestricted: o.Unrestricted}, func(e packagemanager.Event) {
+			r.Observer(e)
+			if r.WriteError() != nil {
+				cancel()
+			}
+		})
+		r.Diagnostics(result.Diagnostics)
+		return r.Finish(err)
+	}
+	return c
 }
 func install(o *Options) *cobra.Command {
 	var file, fileOnly, overwrite, dryRun bool
@@ -83,11 +113,12 @@ func remove(o *Options) *cobra.Command {
 	return c
 }
 func info(o *Options) *cobra.Command {
-	var file, installed bool
+	var file, installed, versions bool
 	c := &cobra.Command{Use: "info <package>", Short: "Package information", Args: cobra.ExactArgs(1)}
 	c.Flags().BoolVar(&file, "file", false, "Read a local DSPK archive.")
 	c.Flags().BoolVar(&installed, "installed", false, "Read an installed package or contribution.")
-	c.MarkFlagsMutuallyExclusive("file", "installed")
+	c.Flags().BoolVar(&versions, "versions", false, "List available remote versions in descending order.")
+	c.MarkFlagsMutuallyExclusive("file", "installed", "versions")
 	c.RunE = func(cmd *cobra.Command, args []string) error {
 		r := renderer(cmd, o, false)
 		defer r.Close()
@@ -95,6 +126,13 @@ func info(o *Options) *cobra.Command {
 			settings, err := remoteSettings(cmd, o)
 			if err != nil {
 				return r.Finish(err)
+			}
+			if versions {
+				data, err := packagemanager.VersionsRemote(cmd.Context(), args[0], settings, o.Unrestricted)
+				if err != nil {
+					return r.Finish(err)
+				}
+				return r.Query(data, nil)
 			}
 			data, diagnostics, err := packagemanager.InfoRemote(cmd.Context(), args[0], settings, o.Unrestricted)
 			if err != nil {

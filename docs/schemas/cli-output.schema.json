@@ -629,6 +629,9 @@
                 },
                 {
                   "$ref": "#/$defs/remoteInfo"
+                },
+                {
+                  "$ref": "#/$defs/remoteVersions"
                 }
               ]
             }
@@ -717,7 +720,8 @@
             "overwrite",
             "skip",
             "remove",
-            "cascade"
+            "cascade",
+            "download"
           ]
         },
         "file": {
@@ -733,7 +737,8 @@
             "enum": [
               "install",
               "overwrite",
-              "skip"
+              "skip",
+              "download"
             ]
           }
         }
@@ -1012,7 +1017,8 @@
               "enum": [
                 "install",
                 "remove",
-                "pack"
+                "pack",
+                "download"
               ]
             },
             "event": {
@@ -1317,7 +1323,8 @@
                 "remove",
                 "pack",
                 "repo create",
-                "cache clean"
+                "cache clean",
+                "download"
               ]
             },
             "event": {
@@ -1339,7 +1346,10 @@
           ],
           "properties": {
             "command": {
-              "const": "install"
+              "enum": [
+                "install",
+                "download"
+              ]
             },
             "event": {
               "enum": [
@@ -1393,6 +1403,55 @@
             },
             "data": {
               "type": "object"
+            }
+          }
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
+          "properties": {
+            "command": {
+              "const": "download"
+            },
+            "event": {
+              "const": "result"
+            },
+            "data": {
+              "$ref": "#/$defs/downloadAction"
+            }
+          }
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/mutationRecord"
+            }
+          ],
+          "properties": {
+            "command": {
+              "const": "download"
+            },
+            "event": {
+              "const": "summary"
+            },
+            "data": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/mutationSummary"
+                },
+                {
+                  "properties": {
+                    "actions": {
+                      "items": {
+                        "$ref": "#/$defs/downloadAction"
+                      }
+                    }
+                  }
+                }
+              ]
             }
           }
         }
@@ -1518,6 +1577,7 @@
         "compatVersion",
         "downloadUrl",
         "downloadSha512",
+        "downloadSize",
         "dependencies",
         "singers"
       ],
@@ -1592,6 +1652,11 @@
           "type": "string",
           "minLength": 1,
           "pattern": "\\S"
+        },
+        "downloadSize": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The value is the exact compressed archive size in bytes."
         }
       },
       "if": {
@@ -2198,6 +2263,7 @@
             "compatVersion",
             "downloadUrl",
             "downloadSha512",
+            "downloadSize",
             "dependencies",
             "singers"
           ],
@@ -2272,6 +2338,11 @@
               "type": "string",
               "minLength": 1,
               "pattern": "\\S"
+            },
+            "downloadSize": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The value is the exact compressed archive size in bytes."
             }
           },
           "if": {
@@ -2351,6 +2422,74 @@
           }
         }
       }
+    },
+    "remoteVersions": {
+      "type": "object",
+      "required": [
+        "repositoryFormatVersion",
+        "id",
+        "latestVersion",
+        "versions"
+      ],
+      "properties": {
+        "repositoryFormatVersion": {
+          "const": 1
+        },
+        "id": {
+          "$ref": "#/$defs/packageId"
+        },
+        "latestVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "versions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "version",
+              "compatVersion",
+              "manifestSha512",
+              "deprecated"
+            ],
+            "properties": {
+              "version": {
+                "$ref": "#/$defs/version"
+              },
+              "compatVersion": {
+                "$ref": "#/$defs/version"
+              },
+              "manifestSha512": {
+                "$ref": "#/$defs/remote_sha512"
+              },
+              "deprecated": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "downloadAction": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/action"
+        },
+        {
+          "properties": {
+            "action": {
+              "enum": [
+                "download",
+                "skip"
+              ]
+            }
+          },
+          "required": [
+            "file",
+            "hash"
+          ]
+        }
+      ]
     }
   }
 }

@@ -148,3 +148,59 @@ func TestMarkedCacheRecoversLockDirectoryAndCleanCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTemporaryCleanupPreservesResumableAndCompleteFiles(t *testing.T) {
+	c, err := Open(context.Background(), filepath.Join(t.TempDir(), "cache"), "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for _, name := range []string{"tmp/operation/archive.part", "partials/sha512/aa/archive.part", "partials/sha512/aa/archive.json", "partials/sha512/aa/archive.json.tmp", "blobs/sha512/aa/archive.dspk", "metadata/source/body.tmp", "metadata/source/body"} {
+		if err = c.Root.MkdirAll(filepath.Dir(name), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err = c.Root.WriteFile(name, []byte("test"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	preview, err := c.Clean(context.Background(), "temporary", true)
+	if err != nil || preview.RemovedFiles != 3 {
+		t.Fatal(preview, err)
+	}
+	if _, err = c.Root.Stat("tmp/operation/archive.part"); err != nil {
+		t.Fatal(err)
+	}
+	result, err := c.Clean(context.Background(), "temporary", false)
+	if err != nil || result.RemovedFiles != 3 {
+		t.Fatal(result, err)
+	}
+	for _, name := range []string{"partials/sha512/aa/archive.part", "partials/sha512/aa/archive.json", "blobs/sha512/aa/archive.dspk", "metadata/source/body"} {
+		if _, err = c.Root.Stat(name); err != nil {
+			t.Fatal(name, err)
+		}
+	}
+}
+
+func TestCacheAccessRejectsUsedLinksWithoutScanningHistory(t *testing.T) {
+	name := filepath.Join(t.TempDir(), "cache")
+	c, err := Open(context.Background(), name, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	target := t.TempDir()
+	if err = os.Symlink(target, filepath.Join(name, "metadata")); err != nil {
+		t.Skip("Symbolic link creation is unavailable.")
+	}
+	c, err = Open(context.Background(), name, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err = c.CheckPath("metadata/body"); err == nil {
+		t.Fatal("An accessed link was accepted.")
+	}
+	if _, err = c.Stats(); err == nil {
+		t.Fatal("Cache maintenance accepted a link.")
+	}
+}

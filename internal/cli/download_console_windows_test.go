@@ -57,6 +57,13 @@ func TestWindowsConsoleRemoteDownloads(t *testing.T) {
 	if exit != 0 || installAt < 0 || !strings.Contains(output, "console-known=1.0.0.0 [installed]") || !strings.Contains(output, "console-unknown=1.0.0.0 [installed]") {
 		t.Fatal("The remote console installation did not complete.", exit, output)
 	}
+	planAt, downloadAt := strings.Index(output, "Installation plan"), strings.Index(output, "Downloads:")
+	if planAt < 0 || planAt >= downloadAt || !strings.Contains(output[:downloadAt], "console-unknown=1.0.0.0 [download]") || !strings.Contains(output[:downloadAt], "console-known=1.0.0.0 [download, dependency]") || strings.Contains(output, "Network policy") || strings.Contains(output, "commit committed") || strings.Count(output, "Summary:") != 1 || !strings.Contains(output, "installed: 2") {
+		t.Fatal("The console installation plan or summary is invalid.", output)
+	}
+	if len(regexp.MustCompile(`\[hash=[0-9a-f]{8}…\]`).FindAllString(output, -1)) != 2 {
+		t.Fatal("Installation results do not contain abbreviated digests.", output)
+	}
 	downloadOutput := output[:installAt]
 	partial := regexp.MustCompile(`\b[1-9][0-9]?%`)
 	percentages := map[string]bool{}
@@ -65,6 +72,9 @@ func TestWindowsConsoleRemoteDownloads(t *testing.T) {
 	}
 	if len(percentages) < 3 || !strings.Contains(downloadOutput, "█") || !strings.Contains(downloadOutput, "Downloads:") || !strings.Contains(downloadOutput, "console-known=1.0.0.0") || !strings.Contains(downloadOutput, "console-unknown=1.0.0.0") || !strings.Contains(downloadOutput, "Total size unknown.") {
 		t.Fatal("The download stage lacks determinate or indeterminate progress.", downloadOutput)
+	}
+	if strings.Count(downloadOutput, "100%") != 2 || !strings.Contains(downloadOutput, "console-known=1.0.0.0  completed") || !strings.Contains(downloadOutput, "console-unknown=1.0.0.0  completed") {
+		t.Fatal("Completed downloads lack retained final records and progress bars.", downloadOutput)
 	}
 	if !strings.Contains(output[installAt:], "100%") || !strings.Contains(output, "\x1b[?25h") {
 		t.Fatal("The installation progress or cursor restoration is absent.", output)
@@ -78,6 +88,9 @@ func TestWindowsConsoleRemoteDownloads(t *testing.T) {
 	save("remote-cache-hit", output)
 	if exit != 0 || !strings.Contains(output, "console-known=1.0.0.0 [installed]") || !strings.Contains(output, "console-unknown=1.0.0.0 [installed]") || server.Count(knownPath) != 1 || server.Count(unknownPath) != 1 {
 		t.Fatal("Cache reuse failed or requested an archive again.", exit, output)
+	}
+	if downloadAt = strings.Index(output, "Downloads:"); downloadAt < 0 || !strings.Contains(output[:downloadAt], "console-unknown=1.0.0.0 [cache]") || !strings.Contains(output[:downloadAt], "console-known=1.0.0.0 [cache, dependency]") {
+		t.Fatal("The installation plan does not identify cached archives before acquisition.", output)
 	}
 	args[1], args[3] = filepath.Join(root, "cancelled-packages"), filepath.Join(root, "cancelled-cache")
 	args[len(args)-1] = "console-known"

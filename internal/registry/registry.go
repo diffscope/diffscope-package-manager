@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"sync"
@@ -59,6 +60,7 @@ type Session struct {
 	Cache     *downloadcache.Cache
 	Budget    *Budget
 	Client    *http.Client
+	Offline   bool
 	mu        sync.Mutex
 	root      *repo.PackagesIndex
 	versions  map[string]repo.VersionsIndex
@@ -115,6 +117,13 @@ func (s *Session) fetch(ctx context.Context, relative, expected string, max int)
 		defer lock.Unlock()
 	}
 	key := "metadata/" + s.Source.ID + "/" + netpolicy.Key(rawURL)
+	if s.Cache != nil {
+		for _, name := range []string{key + ".json", key + ".body"} {
+			if err := s.Cache.CheckPath(name); err != nil {
+				return nil, err
+			}
+		}
+	}
 	var meta cached
 	var body []byte
 	if s.Cache != nil {
@@ -126,6 +135,12 @@ func (s *Session) fetch(ctx context.Context, relative, expected string, max int)
 		if expected != "" && body != nil && meta.Sha512 == expected && !strings.Contains(strings.ToLower(meta.CacheControl), "no-cache") {
 			return body, s.Budget.add(len(body))
 		}
+	}
+	if s.Offline {
+		if body == nil || expected != "" && meta.Sha512 != expected {
+			return nil, fmt.Errorf("OFFLINE_CACHE_MISS: Repository metadata is not cached: %s.", netpolicy.Redact(rawURL))
+		}
+		return body, s.Budget.add(len(body))
 	}
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
@@ -199,6 +214,32 @@ func (s *Session) fetch(ctx context.Context, relative, expected string, max int)
 		if body != nil {
 			if expected != "" && repo.Sha512(body) != expected {
 				return nil, ErrInconsistent
+			}
+			for _, field := range []struct {
+				header string
+				value  *string
+			}{
+				{"ETag", &meta.ETag}, {"Last-Modified", &meta.LastModified}, {"Cache-Control", &meta.CacheControl},
+			} {
+				if values, present := resp.Header[http.CanonicalHeaderKey(field.header)]; present {
+					*field.value = strings.Join(values, ", ")
+				}
+			}
+			meta.FetchedAt = time.Now().UTC()
+			if s.Cache != nil {
+				if strings.Contains(strings.ToLower(meta.CacheControl), "no-store") {
+					if err = s.Cache.Root.Remove(key + ".body"); err != nil && !errors.Is(err, os.ErrNotExist) {
+						return nil, err
+					}
+					if err = s.Cache.Root.Remove(key + ".json"); err != nil && !errors.Is(err, os.ErrNotExist) {
+						return nil, err
+					}
+				} else {
+					b, _ := json.Marshal(meta)
+					if err = downloadcache.AtomicWrite(s.Cache.Root, key+".json", b); err != nil {
+						return nil, err
+					}
+				}
 			}
 			return body, s.Budget.add(len(body))
 		}
@@ -283,6 +324,9 @@ func (s *Session) initialize(ctx context.Context) error {
 	s.Source.Revision = m.RepositoryRevision
 	s.Source.RootSha512 = repo.Sha512(b)
 	s.Source.Freshness = "revalidated"
+	if s.Offline {
+		s.Source.Freshness = "cached"
+	}
 	return nil
 }
 func (s *Session) Resolve(ctx context.Context, id string, exact *packageinfo.Version, target *packageinfo.Version) (Resolved, bool, error) {
@@ -292,30 +336,9 @@ func (s *Session) Resolve(ctx context.Context, id string, exact *packageinfo.Ver
 	if err := s.initialize(ctx); err != nil {
 		return result, false, err
 	}
-	var entry *repo.PackageEntry
-	for i := range s.root.Packages {
-		if s.root.Packages[i].ID == id {
-			entry = &s.root.Packages[i]
-			break
-		}
-	}
-	if entry == nil {
-		return result, false, nil
-	}
-	versions, ok := s.versions[id]
-	if !ok {
-		b, err := s.fetch(ctx, id+"/@versions/index.json", entry.VersionsIndexSha512, 8<<20)
-		if err != nil {
-			return result, false, err
-		}
-		versions, err = repo.DecodeVersionsIndex(b, repo.DecodeLimits{MaxBytes: 8 << 20})
-		if err != nil {
-			return result, false, err
-		}
-		if versions.ID != id || versions.LatestVersion.Compare(entry.LatestVersion) != 0 {
-			return result, false, fmt.Errorf("%w: Index identity or latest-version metadata differs.", ErrInconsistent)
-		}
-		s.versions[id] = versions
+	versions, ok, err := s.loadVersions(ctx, id)
+	if err != nil || !ok {
+		return result, false, err
 	}
 	var selected *repo.VersionEntry
 	for i, v := range versions.Versions {
@@ -370,4 +393,42 @@ func Allowed(id string, s Source, rules []Rule) bool {
 		}
 	}
 	return false
+}
+
+// Returns the ordered versions index and whether the package is present.
+func (s *Session) Versions(ctx context.Context, id string) (repo.VersionsIndex, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.initialize(ctx); err != nil {
+		return repo.VersionsIndex{}, false, err
+	}
+	return s.loadVersions(ctx, id)
+}
+func (s *Session) loadVersions(ctx context.Context, id string) (repo.VersionsIndex, bool, error) {
+	var entry *repo.PackageEntry
+	for i := range s.root.Packages {
+		if s.root.Packages[i].ID == id {
+			entry = &s.root.Packages[i]
+			break
+		}
+	}
+	if entry == nil {
+		return repo.VersionsIndex{}, false, nil
+	}
+	versions, ok := s.versions[id]
+	if !ok {
+		b, err := s.fetch(ctx, id+"/@versions/index.json", entry.VersionsIndexSha512, 8<<20)
+		if err != nil {
+			return repo.VersionsIndex{}, false, err
+		}
+		versions, err = repo.DecodeVersionsIndex(b, repo.DecodeLimits{MaxBytes: 8 << 20})
+		if err != nil {
+			return repo.VersionsIndex{}, false, err
+		}
+		if versions.ID != id || versions.LatestVersion.Compare(entry.LatestVersion) != 0 {
+			return repo.VersionsIndex{}, false, fmt.Errorf("%w: Index identity or latest-version metadata differs.", ErrInconsistent)
+		}
+		s.versions[id] = versions
+	}
+	return versions, true, nil
 }

@@ -34,23 +34,29 @@ func (s *Session) Stage(ctx context.Context, a *packagearchive.Archive) (string,
 }
 
 func (s *Session) StageWithProgress(ctx context.Context, a *packagearchive.Archive, progress packagearchive.ProgressFunc) (string, packageinfo.PackageManifest, error) {
+	stage, p, _, err := s.StageAndHash(ctx, a, progress)
+	return stage, p, err
+}
+
+func (s *Session) StageAndHash(ctx context.Context, a *packagearchive.Archive, progress packagearchive.ProgressFunc) (string, packageinfo.PackageManifest, string, error) {
 	var p packageinfo.PackageManifest
 	if err := s.ensureTransaction(); err != nil {
-		return "", p, err
+		return "", p, "", err
 	}
 	stage := fmt.Sprintf("stage-%d", s.stageCount)
 	s.stageCount++
 	dest := filepath.Join(s.txRoot(), s.transaction, stage)
-	if err := a.ExtractWithProgress(ctx, dest, progress); err != nil {
-		return "", p, err
+	hash, err := a.ExtractAndHash(ctx, dest, progress)
+	if err != nil {
+		return "", p, "", err
 	}
 	d, err := packagearchive.OpenDirectory(dest)
 	if err != nil {
-		return "", p, err
+		return "", p, "", err
 	}
 	defer d.Close()
 	p, err = packageinfo.Load(d, dest)
-	return stage, p, err
+	return stage, p, hash, err
 }
 func (s *Session) StagedHash(ctx context.Context, stage string, limits packagearchive.Limits) (string, error) {
 	return s.StagedHashWithProgress(ctx, stage, limits, nil)

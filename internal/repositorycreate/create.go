@@ -230,7 +230,7 @@ func Create(ctx context.Context, filename, repository, downloadURL string, dry b
 	if err != nil {
 		return result, err
 	}
-	m, assets, err := repo.BuildManifest(p, repo.Publication{DownloadURL: downloadURL, DownloadSha512: sha}, nil)
+	m, assets, err := repo.BuildManifest(p, repo.Publication{DownloadURL: downloadURL, DownloadSha512: sha, DownloadSize: before.Size()}, nil)
 	if err != nil {
 		return result, err
 	}
@@ -279,7 +279,7 @@ func Create(ctx context.Context, filename, repository, downloadURL string, dry b
 		if e != nil {
 			return result, e
 		}
-		if len(diff) > 0 || existing.DownloadURL != downloadURL || existing.DownloadSha512 != sha {
+		if len(diff) > 0 || existing.DownloadURL != downloadURL || existing.DownloadSha512 != sha || existing.DownloadSize != before.Size() {
 			return result, fmt.Errorf("CONFLICT: The published identity has different content or publication metadata.")
 		}
 		mapping, e := repo.ResourceMappings(existing, p)

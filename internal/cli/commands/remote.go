@@ -7,6 +7,7 @@ import (
 	"github.com/diffscope/diffscope-package-manager/internal/repositorycreate"
 	"github.com/spf13/cobra"
 	"strings"
+	"time"
 )
 
 func commandName(c *cobra.Command) string {
@@ -19,6 +20,22 @@ func remoteSettings(cmd *cobra.Command, o *Options) (config.Remote, error) {
 	r, err := config.LoadRemote(o.ConfigFile, o.Registries, cmd.Flags().Changed("registry"), o.CacheDir, cmd.Flags().Changed("cache-dir"), o.Concurrency, cmd.Flags().Changed("download-concurrency"))
 	if err != nil {
 		return r, &packagemanager.Error{Code: "INVALID_ARGUMENT", Message: err.Error(), Cause: err}
+	}
+	r.Offline = o.Offline
+	if cmd.Flags().Changed("download-timeout") {
+		if o.DownloadTimeout < time.Second || o.DownloadTimeout%time.Second != 0 {
+			return r, &packagemanager.Error{Code: "INVALID_ARGUMENT", Message: "The download timeout must be a positive whole number of seconds."}
+		}
+		r.DownloadTimeoutSeconds = int(o.DownloadTimeout / time.Second)
+	}
+	if cmd.Flags().Changed("download-retries") {
+		r.DownloadRetries = o.DownloadRetries
+	}
+	if r.DownloadTimeoutSeconds < 1 || r.DownloadRetries < 0 {
+		return r, &packagemanager.Error{Code: "INVALID_ARGUMENT", Message: "The download timeout must be positive and the retry count must be nonnegative."}
+	}
+	if int64(r.DownloadTimeoutSeconds) > int64((1<<63-1)/time.Second) {
+		return r, &packagemanager.Error{Code: "INVALID_ARGUMENT", Message: "The download timeout exceeds the supported duration."}
 	}
 	return r, nil
 }
@@ -99,13 +116,14 @@ func cache(o *Options) *cobra.Command {
 		}
 		parent.AddCommand(c)
 	}
-	var downloads, metadata, partial, dry bool
+	var downloads, metadata, partial, temporary, dry bool
 	c := &cobra.Command{Use: "clean", Short: "Managed cache cleanup", Args: cobra.NoArgs}
 	c.Flags().BoolVar(&downloads, "downloads", false, "Limit cleanup to archives and partial downloads.")
 	c.Flags().BoolVar(&metadata, "metadata", false, "Limit cleanup to repository metadata.")
 	c.Flags().BoolVar(&partial, "partial", false, "Limit cleanup to resumable partial downloads.")
 	c.Flags().BoolVar(&dry, "dry-run", false, "Preview managed deletions without deleting files.")
-	c.MarkFlagsMutuallyExclusive("downloads", "metadata", "partial")
+	c.Flags().BoolVar(&temporary, "temporary", false, "Limit cleanup to incomplete temporary writes and nonresumable transfers.")
+	c.MarkFlagsMutuallyExclusive("downloads", "metadata", "partial", "temporary")
 	c.RunE = func(cmd *cobra.Command, args []string) error {
 		r := renderer(cmd, o, true)
 		defer r.Close()
@@ -114,6 +132,9 @@ func cache(o *Options) *cobra.Command {
 			return r.Finish(err)
 		}
 		scope := "all"
+		if temporary {
+			scope = "temporary"
+		}
 		if downloads {
 			scope = "downloads"
 		}

@@ -103,10 +103,13 @@ func Open(ctx context.Context, root, packages string, create bool) (*Cache, erro
 			r.Close()
 		}
 	}()
+	if err = checkPath(r, "cache-format.json"); err != nil {
+		return nil, err
+	}
 	if err = prepareMarker(ctx, r, create); err != nil {
 		return nil, err
 	}
-	if err = checkTree(r); err != nil {
+	if err = checkPath(r, "locks/lifecycle"); err != nil {
 		return nil, err
 	}
 	// A crash immediately after marker publication may leave no lock directory.
@@ -132,6 +135,9 @@ func checkTree(r *os.Root) error {
 	})
 }
 func (c *Cache) Lease(ctx context.Context) error {
+	if err := checkPath(c.Root, "locks/lifecycle"); err != nil {
+		return err
+	}
 	l := flock.New(filepath.Join(c.Root.Name(), "locks", "lifecycle"))
 	ok, err := l.TryRLockContext(ctx, 100*time.Millisecond)
 	if err != nil {
@@ -156,6 +162,9 @@ func (c *Cache) ObjectLock(ctx context.Context, digest string) (*flock.Flock, er
 	if !repo.IsDigest(digest) {
 		return nil, fmt.Errorf("The digest is invalid.")
 	}
+	if err := checkPath(c.Root, "locks/"+digest); err != nil {
+		return nil, err
+	}
 	l := flock.New(filepath.Join(c.Root.Name(), "locks", digest))
 	ok, err := l.TryLockContext(ctx, 100*time.Millisecond)
 	if err != nil {
@@ -167,6 +176,12 @@ func (c *Cache) ObjectLock(ctx context.Context, digest string) (*flock.Flock, er
 	return l, nil
 }
 func AtomicWrite(r *os.Root, p string, b []byte) error {
+	if err := checkPath(r, p); err != nil {
+		return err
+	}
+	if err := checkPath(r, p+".tmp"); err != nil {
+		return err
+	}
 	f, err := r.OpenFile(p+".tmp", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
@@ -191,6 +206,11 @@ func (c *Cache) Paths(digest string) (blob, partial, sidecar string, errorValue 
 	blob = "blobs/sha512/" + digest[:2] + "/" + digest + ".dspk"
 	partial = "partials/sha512/" + digest[:2] + "/" + digest + ".part"
 	sidecar = strings.TrimSuffix(partial, ".part") + ".json"
+	for _, name := range []string{blob, partial, sidecar} {
+		if err := checkPath(c.Root, name); err != nil {
+			return "", "", "", err
+		}
+	}
 	return
 }
 
@@ -203,6 +223,9 @@ type Stats struct {
 
 func (c *Cache) Stats() (Stats, error) {
 	s := Stats{Directory: c.Root.Name(), Files: map[string]int{}, Bytes: map[string]int64{}}
+	if err := checkTree(c.Root); err != nil {
+		return s, err
+	}
 	err := fs.WalkDir(c.Root.FS(), ".", func(p string, d fs.DirEntry, e error) error {
 		if e != nil {
 			return e
@@ -258,7 +281,7 @@ func (c *Cache) Clean(ctx context.Context, scope string, dry bool) (CleanResult,
 	}
 	names := []string{"blobs", "partials", "metadata", "tmp"}
 	for _, name := range names {
-		selected := scope == "all" || scope == "downloads" && (name == "blobs" || name == "partials" || name == "tmp") || scope == "metadata" && name == "metadata" || scope == "partial" && name == "partials"
+		selected := scope == "temporary" || scope == "all" || scope == "downloads" && (name == "blobs" || name == "partials" || name == "tmp") || scope == "metadata" && name == "metadata" || scope == "partial" && name == "partials"
 		if !selected {
 			continue
 		}
@@ -273,19 +296,25 @@ func (c *Cache) Clean(ctx context.Context, scope string, dry bool) (CleanResult,
 				return e
 			}
 			if !d.IsDir() {
+				if scope == "temporary" && name != "tmp" && !strings.HasSuffix(p, ".tmp") {
+					return nil
+				}
 				st, e := d.Info()
 				if e != nil {
 					return e
 				}
 				out.RemovedFiles++
 				out.FreedBytes += st.Size()
+				if scope == "temporary" && name != "tmp" && !dry {
+					return c.Root.Remove(p)
+				}
 			}
 			return nil
 		})
 		if err != nil {
 			return out, err
 		}
-		if !dry {
+		if !dry && (scope != "temporary" || name == "tmp") {
 			if err = c.Root.RemoveAll(name); err != nil {
 				return out, err
 			}
@@ -294,12 +323,38 @@ func (c *Cache) Clean(ctx context.Context, scope string, dry bool) (CleanResult,
 	return out, nil
 }
 func (c *Cache) ReadJSON(p string, out any) error {
+	if err := checkPath(c.Root, p); err != nil {
+		return err
+	}
 	b, err := c.Root.ReadFile(p)
 	if err != nil {
 		return err
 	}
 	return json.Unmarshal(b, out)
 }
+
+// Rejects links and special files along an accessed cache path.
+// Returns nil if the existing components are ordinary files or directories.
+func checkPath(r *os.Root, p string) error {
+	parts := strings.Split(filepath.ToSlash(p), "/")
+	for i := range parts {
+		name := strings.Join(parts[:i+1], "/")
+		st, err := r.Lstat(name)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() && !st.Mode().IsRegular() {
+			return fmt.Errorf("INVALID_CACHE_DIRECTORY: The cache entry %s is a link or special file.", name)
+		}
+	}
+	return nil
+}
+
+// Returns an error if an accessed cache path contains a link or special file.
+func (c *Cache) CheckPath(p string) error { return checkPath(c.Root, p) }
 
 func prepareMarker(ctx context.Context, r *os.Root, create bool) error {
 	for attempt := 0; attempt < 30; attempt++ {

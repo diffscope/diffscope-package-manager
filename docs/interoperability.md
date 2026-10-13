@@ -26,6 +26,8 @@ dspm --json pack ./voice --output ./voice.dspk
 
 | Command | Output format | Successful payload |
 | --- | --- | --- |
+| `info --versions <package-id>` | The command returns one JSON response. | `data` contains the OVCPR versions index. |
+| `download <selector>...` | The command returns NDJSON records. | The stream contains preparation and archive export events. |
 | `info <selector>` | The command returns one JSON response. | `data` contains a `RemoteInfo` object. |
 | `cache dir` | The command returns one JSON response. | `data` contains `directory`. |
 | `cache info` | The command returns one JSON response. | `data` contains cache statistics. |
@@ -42,7 +44,7 @@ dspm --json pack ./voice --output ./voice.dspk
 
 `ls` is an alias for `list`. `rm` and `uninstall` are aliases for `remove`. The `command` field contains the canonical command name for these aliases.
 
-`info --file` and `info --installed` are mutually exclusive. `info` and `install` use remote sources if no local source flag is present. `install --file` also obtains missing dependencies remotely. `install --file-only` restricts acquisition to explicit archives and installed dependencies. Help output and root invocation without `--version` use text output even with `--json` enabled.
+`info --file`, `info --installed`, and `info --versions` are mutually exclusive. `info` and `install` use remote sources if no local source flag is present. `install --file` also obtains missing dependencies remotely. `install --file-only` restricts acquisition to explicit archives and installed dependencies. Help output and root invocation without `--version` use text output even with `--json` enabled.
 
 Integrations must place `--json` before subcommands and arguments. Errors that prevent JSON flag parsing can produce text output. Argument errors can identify the selected command or the root command `dspm`.
 
@@ -330,7 +332,7 @@ Only registered packages are managed. The SQLite index is `<packages-root>/.dspm
 
 CLI queries provide coordinated index and filesystem access. Direct readers must follow the [store locking and recovery requirements](installed-database.md#consistent-reads). A SQLite transaction alone does not coordinate package directory renames or perform recovery. Direct SQL writes do not implement package installation or removal.
 
-The [reference DDL](sql/installed-packages.sql) creates an empty database. It neither imports package directories nor upgrades an existing database. The separate migration script requires a verified backup and exclusive store access.
+The [reference DDL](sql/installed-packages.sql) creates an empty database. It neither imports package directories nor upgrades an existing database.
 
 ## Implementation References
 
@@ -351,21 +353,35 @@ The [reference DDL](sql/installed-packages.sql) creates an empty database. It ne
 | `repositoryConformance` | The value identifies the policy's repository conformance scope. |
 | `addressValidation` | The value identifies direct address validation or proxy delegation. |
 
+The remote manifest requires positive integer `downloadSize`, the compressed archive byte count. `info --versions` returns `repositoryFormatVersion`, `id`, `latestVersion`, and ordered `versions`. Each version contains `version`, `compatVersion`, `manifestSha512`, and `deprecated`. Version listing does not fetch individual manifests.
+
 Remote contribution selectors support only `singer` and filter `package.singers` to the requested singer. Other categories return `UNSUPPORTED_REMOTE_CONTRIBUTION`. Deprecation produces string diagnostics and envelope `diagnosticDetails` without changing version selection.
 
-Source records contain `sourceId`, `registryUrl`, `priority`, `repositoryRevision`, and `rootIndexSha512`. Optional fields include `sourceName` and `freshness`. Source identity and authority remain distinct from the source that supplies archive bytes. Presentation URLs are redacted and must not be reused as exact download URLs.
+Source records contain `sourceId`, `registryUrl`, `priority`, `repositoryRevision`, and `rootIndexSha512`. Optional fields include `sourceName` and `freshness`. Offline sources use `freshness: cached`. Source identity and authority remain distinct from the source that supplies archive bytes. Presentation URLs are redacted and must not be reused as exact download URLs.
 
 ## Remote installation events
 
 Remote preparation emits `resolution_plan` after complete metadata and dependency validation. Its payload contains `operationId`, `installedSnapshotFingerprint`, `verificationScope`, `sources`, `sourceOrder`, `roots`, `packages`, `acquisitionDecisions`, `effectiveEdges`, `pendingArchiveChecks`, `networkPolicy`, and `repositoryConformance`.
 
-Each planned package contains its identity, compatibility version, dependencies, and `sourceKind`. Remote candidates additionally record `authoritySourceId`, `manifestSha512`, and `downloadSha512`. Local and installed candidates record available `contentTreeSha512` values. Acquisition decisions record the requester, required dependency, selected provider, and acquisition source. Effective edges describe the final dependency graph.
+Each planned package contains its identity, compatibility version, dependencies, and `sourceKind`. Remote candidates additionally record `authoritySourceId`, `manifestSha512`, `downloadSha512`, and `downloadSize`. Local and installed candidates record available `contentTreeSha512` values. Acquisition decisions record the requester, required dependency, final provider, and acquisition source. Decisions contain no excluded candidates. Effective edges describe the final dependency graph.
+
+Each planned package includes `action`. The value is `install`, `overwrite`, `skip`, `keep`, or `check`. The value `keep` identifies an installed package that requires no acquisition. The value `check` identifies a remote candidate with an installed identity whose skip or overwrite action requires archive validation. All remote candidates require archive validation before installation. Planned actions do not establish command completion.
+
+Each planned package includes `archiveSource`. The value is `download`, `cache`, `prepared`, `local`, or `none`. The value `download` identifies a required remote archive without a complete cache entry. The value `cache` identifies an existing cache entry that requires digest verification before reuse. An invalid entry requires a download. The value `prepared` identifies an archive verified during the current invocation. The value `local` identifies an explicit archive. The value `none` identifies an installed dependency that requires no archive acquisition. Cache presence checks do not establish archive validity. The complete plan precedes archive transfers.
 
 Remote dry runs emit the resolution plan followed by a successful summary. The summary contains `dryRun: true`, `verification: metadata-only`, `actions: []`, `plannedActions`, `pendingArchiveChecks`, and `commitOutcome: not-started`. These fields do not establish archive validity.
 
 Normal preparation downloads and verifies required archives before local installation events. A concurrent store change can produce `plan_updated` and a new resolution plan. Completed transfers remain reusable. Every announced task has a terminal record before the command summary or error.
 
 The successful remote summary includes installation actions, source records, `downloadStats`, `diagnosticDetails`, string diagnostics, `commitOutcome`, and policy fields. Transfer statistics contain actual source IDs, source history, received byte counts, attempts, rejected candidates, cache status, verified archive digests, and source proofs. Each source proof records the repository revision, root digest, manifest digest, and archive digest. Completed transfers contribute once even if a later plan no longer requires their archives.
+
+## Archive export events
+
+`download` uses the remote preparation, resolution plan, and progress representations. The final graph contains the requested roots and all required dependencies without installed candidates. Planned actions use `download`. `installedSnapshotFingerprint` is the fingerprint of the empty record set. Preparation does not access the installation database.
+
+Each `result` contains an action with `package`, `action`, `file`, and `hash`. The action is `download` for a newly exported archive or `skip` for an identical existing export. The absolute `file` path identifies the exported archive. `hash` is the validated content-tree digest. Archive file digests and byte counts remain in the resolution plan.
+
+A successful summary contains `actions`, `dryRun: false`, `sources`, `downloadStats`, `diagnosticDetails`, and `diagnostics`. A dry run emits the metadata-only plan and summary without results or exports. Each archive is published independently. Results from completed exports can precede a later error.
 
 ## Download progress v1
 
@@ -415,6 +431,8 @@ Structured diagnostics contain `code`, `severity`, and `message`, with identity 
 | `PACKAGE_METADATA_MISMATCH`, `NONPORTABLE_METADATA` | Archive metadata disagrees with publication metadata or depends on the virtual root. |
 | `DISK_FULL` | Available storage is insufficient or a write reports a full device. |
 | `INVALID_CACHE_DIRECTORY`, `CACHE_BUSY` | Cache identity, boundaries, or lifecycle access are invalid or unavailable. |
+| `OFFLINE_CACHE_MISS` | Required repository metadata or a verified complete archive is absent from the cache. |
+| `DOWNLOAD_SIZE_MISMATCH` | The archive byte count differs from the manifest. |
 | `INPUT_CHANGED`, `STORE_CHANGED` | Archive input or installed state changes during preparation. |
 | `REPOSITORY_RECOVERY_REQUIRED` | Repository publication evidence requires recovery or maintainer intervention. |
 | `UNSUPPORTED_REMOTE_CONTRIBUTION` | A remote contribution selector uses a category other than `singer`. |
