@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/diffscope/diffscope-package-manager/internal/buildinfo"
 	"github.com/diffscope/diffscope-package-manager/internal/cli/commands"
 	"github.com/diffscope/diffscope-package-manager/internal/cli/output"
 	"github.com/diffscope/diffscope-package-manager/internal/config"
@@ -17,8 +18,6 @@ import (
 	"strings"
 	"time"
 )
-
-var version = "0.0.0+dev"
 
 func NewRootCommand() *cobra.Command {
 	o := &commands.Options{PackagesDir: config.DefaultPackagesDir(), Language: language.CurrentCode()}
@@ -34,9 +33,9 @@ func NewRootCommand() *cobra.Command {
 	root.RunE = func(cmd *cobra.Command, args []string) error {
 		if showVersion {
 			if o.JSON {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"name": "dspm", "version": version})
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"name": "dspm", "version": buildinfo.Version()})
 			}
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), "dspm version", version)
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), "dspm version", buildinfo.Version())
 			return err
 		}
 		return cmd.Help()

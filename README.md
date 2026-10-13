@@ -19,10 +19,10 @@ Linux and macOS builds require `CGO_ENABLED=1` and a C compiler. CI includes tes
 
 ## Release builds
 
-Release builds require an explicit executable version and a reviewed source revision. The version is independent of package format and database schema versions. The following PowerShell command requires `DSPM_RELEASE_VERSION` to contain the release identifier.
+The executable base version is defined only in `internal/buildinfo/VERSION` as `a.b.c`. It is independent of package format and database schema versions. Local builds use the suffix `+dev`. The linker can inject a suffix, including an empty suffix for a stable release:
 
 ```powershell
-go build -trimpath -ldflags "-X github.com/diffscope/diffscope-package-manager/internal/cli.version=$env:DSPM_RELEASE_VERSION" -o dspm.exe ./cmd/dspm
+go build -trimpath -ldflags "-X github.com/diffscope/diffscope-package-manager/internal/buildinfo.Suffix=$env:DSPM_VERSION_SUFFIX" -o dspm.exe ./cmd/dspm
 go version -m ./dspm.exe
 ./dspm.exe --json --version
 ```

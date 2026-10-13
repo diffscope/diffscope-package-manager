@@ -1,0 +1,156 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+      build_type:
+        required: true
+        type: string
+      version_identifier:
+        required: false
+        type: string
+        default: ''
+    outputs:
+      semver:
+        value: ${{ jobs.Prepare.outputs.semver }}
+      tag:
+        value: ${{ jobs.Prepare.outputs.tag }}
+      application_name:
+        value: ${{ jobs.Prepare.outputs.application_name }}
+
+jobs:
+  Prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      semver: ${{ steps.prepare.outputs.semver }}
+      tag: ${{ steps.prepare.outputs.tag }}
+      application_name: ${{ steps.prepare.outputs.application_name }}
+      version_suffix: ${{ steps.prepare.outputs.version_suffix }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Prepare build version
+        id: prepare
+        uses: actions/github-script@v7
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          BUILD_TYPE: ${{ inputs.build_type }}
+          VERSION_IDENTIFIER: ${{ inputs.version_identifier }}
+        with:
+          script: |
+            await require('./.github/scripts/nightly.cjs').prepare({github, context, core});
+
+  Build:
+    needs: Prepare
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    env:
+      CGO_ENABLED: '1'
+      VERSION_SUFFIX: ${{ needs.Prepare.outputs.version_suffix }}
+      APPLICATION_SEMVER: ${{ needs.Prepare.outputs.semver }}
+      APPLICATION_NAME: ${{ needs.Prepare.outputs.application_name }}
+      ARTIFACT_PLATFORM: ${{ matrix.platform }}
+      ARTIFACT_ARCH: ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: Linux
+            arch: amd64
+          - os: windows-latest
+            platform: Windows
+            arch: amd64
+          - os: macos-latest
+            platform: macOS
+            arch: arm64
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Go setup
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Dependency download
+        run: go mod download
+
+      - name: MinGW configuration
+        if: runner.os == 'Windows'
+        run: |
+          $compiler = Get-Command gcc -ErrorAction Stop
+          "CC=$($compiler.Source)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          & $compiler.Source --version
+
+      - name: Formatting validation
+        if: matrix.os == 'ubuntu-latest' # Formatting validation requires one platform.
+        run: |
+          $unformatted = gofmt -l .
+          if ($unformatted) {
+            Write-Error "The following Go files require gofmt formatting:"
+            $unformatted
+            exit 1
+          }
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Race detection
+        run: go test -race ./...
+
+      - name: Build
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $ext = if ($env:RUNNER_OS -eq 'Windows') { '.exe' } else { '' }
+          go build -v -ldflags "-X github.com/diffscope/diffscope-package-manager/internal/buildinfo.Suffix=$env:VERSION_SUFFIX" -o "dist/dspm$ext" ./cmd/dspm
+
+      - name: Artifact upload
+        if: inputs.build_type == 'dev'
+        uses: actions/upload-artifact@v7
+        with:
+          name: dspm-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Prepare nightly asset
+        if: inputs.build_type == 'nightly'
+        run: |
+          $expectedRunnerArch = if ($env:ARTIFACT_ARCH -eq 'amd64') { 'X64' } else { 'ARM64' }
+          if ($env:RUNNER_ARCH -ne $expectedRunnerArch) {
+            throw "Unexpected runner architecture: $env:RUNNER_ARCH"
+          }
+          $ext = if ($env:RUNNER_OS -eq 'Windows') { '.exe' } else { '' }
+          $escapedVersion = $env:APPLICATION_SEMVER -replace '[.\-+]', '_'
+          $assetName = "$($env:APPLICATION_NAME)_$($escapedVersion)_$($env:ARTIFACT_PLATFORM)_$($env:ARTIFACT_ARCH)_standalone$ext"
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          Copy-Item -LiteralPath "dist/dspm$ext" -Destination "release-assets/$assetName"
+          "ASSET_NAME=$assetName" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Nightly artifact upload
+        if: inputs.build_type == 'nightly'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ASSET_NAME }}
+          path: release-assets/*
+          if-no-files-found: error
+          overwrite: true

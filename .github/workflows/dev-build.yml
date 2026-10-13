@@ -1,0 +1,22 @@
+name: Dev Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      identifier:
+        description: Version identifier appended to the source commit SHA
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  Build:
+    uses: ./.github/workflows/build.yml
+    with:
+      source_sha: ${{ github.sha }}
+      build_type: dev
+      version_identifier: ${{ github.sha }}${{ github.event.inputs.identifier && '.' || '' }}${{ github.event.inputs.identifier }}
