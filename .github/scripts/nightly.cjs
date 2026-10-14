@@ -179,10 +179,13 @@ async function prepare({ github, context, core }) {
 function expectedAssets(applicationName, semver) {
     const base = applicationName + '_' + semver.replace(/[.\-+]/g, '_');
     return [
-        base + '_Windows_amd64_standalone.exe',
-        base + '_Linux_amd64_standalone',
-        base + '_macOS_arm64_standalone'
-    ];
+        ['_Windows_amd64_standalone.exe', 'windows', 'amd64', 'exe', 'standalone'],
+        ['_Windows_amd64_debug_symbols.7z', 'windows', 'amd64', '7z', 'debug_symbols'],
+        ['_Linux_amd64_standalone', 'linux', 'amd64', 'binary', 'standalone'],
+        ['_Linux_amd64_debug_symbols.7z', 'linux', 'amd64', '7z', 'debug_symbols'],
+        ['_macOS_arm64_standalone', 'macos', 'arm64', 'binary', 'standalone'],
+        ['_macOS_arm64_debug_symbols.7z', 'macos', 'arm64', '7z', 'debug_symbols']
+    ].map(([suffix, platform, arch, format, variant]) => ({ name: base + suffix, platform, arch, format, variant }));
 }
 
 async function fileDigest(filename) {
@@ -213,7 +216,8 @@ async function publish({ github, context, core }) {
     const match = tag.match(nightlyPattern);
     if (!match) throw new Error('Invalid nightly tag');
     const semver = match[1];
-    const names = expectedAssets(process.env.APPLICATION_NAME, semver);
+    const expected = expectedAssets(process.env.APPLICATION_NAME, semver);
+    const names = expected.map(asset => asset.name);
     const { data: ref } = await github.rest.git.getRef({ ...context.repo, ref: 'tags/' + tag });
     const attempt = await readAttempt(github, context.repo, {
         ref, name: tag, semver, date: match[2], sequence: Number(match[3])
@@ -277,36 +281,23 @@ async function publish({ github, context, core }) {
             ...context.repo, release_id: release.id, draft: false, prerelease: true, make_latest: 'false'
         }));
     }
-    core.setOutput('release_id', String(release.id));
+    if (!release.published_at) throw new Error('The nightly release has no publication timestamp');
+    const artifacts = [];
+    for (const { name, ...metadata } of expected) {
+        const asset = assets.find(asset => asset.name === name);
+        const url = 'https://github.com/' + context.repo.owner + '/' + context.repo.repo +
+            '/releases/download/' + encodeURIComponent(tag) + '/' + encodeURIComponent(name);
+        if (asset.browser_download_url !== url || !Number.isSafeInteger(asset.size)) {
+            throw new Error('Invalid published asset metadata: ' + name);
+        }
+        artifacts.push({ ...metadata, url, size: asset.size, sha256: await assetDigest(asset) });
+    }
+    core.setOutput('catalog_manifest', JSON.stringify({
+        $schema: 'https://catalogs.diffscope.org/schema/v1/version.schema.json',
+        channel: 'nightly', version: semver, date: release.published_at,
+        source: { commit: attempt.source_sha, tag }, releaseNotes: release.html_url, artifacts
+    }));
     await core.summary.addLink('Published ' + semver, release.html_url).write();
 }
 
-async function dispatch({ github, core }) {
-    const releaseId = process.env.RELEASE_ID;
-    if (!/^[1-9]\d*$/.test(releaseId)) throw new Error('Invalid release ID');
-    const owner = 'diffscope';
-    const repo = 'catalogs';
-    const deadline = Date.now() + 30 * 60 * 1000;
-    const { data } = await github.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
-        owner, repo, workflow_id: 'update-dspm-nightly.yml', ref: 'main',
-        inputs: { release_id: releaseId }, headers: { 'X-GitHub-Api-Version': '2026-03-10' }
-    });
-    if (!data.workflow_run_id) throw new Error('The dispatch API did not return a catalogs workflow run ID');
-    core.notice('Catalogs update: ' + data.html_url);
-    await core.summary.addLink('Catalogs update', data.html_url).write();
-    while (Date.now() < deadline) {
-        const { data: run } = await github.rest.actions.getWorkflowRun({
-            owner, repo, run_id: data.workflow_run_id
-        });
-        if (run.status === 'completed') {
-            if (run.conclusion !== 'success') {
-                throw new Error('Catalogs update finished with ' + run.conclusion + ': ' + run.html_url);
-            }
-            return;
-        }
-        await new Promise(resolve => setTimeout(resolve, 15000));
-    }
-    throw new Error('Timed out waiting 30 minutes for catalogs update: ' + data.html_url);
-}
-
-module.exports = { check, prepare, publish, dispatch };
+module.exports = { check, prepare, publish };

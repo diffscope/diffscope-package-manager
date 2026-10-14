@@ -122,7 +122,46 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           $ext = if ($env:RUNNER_OS -eq 'Windows') { '.exe' } else { '' }
-          go build -v -ldflags "-X github.com/diffscope/diffscope-package-manager/internal/buildinfo.Suffix=$env:VERSION_SUFFIX" -o "dist/dspm$ext" ./cmd/dspm
+          $linkerFlags = "-compressdwarf=false -X github.com/diffscope/diffscope-package-manager/internal/buildinfo.Suffix=$env:VERSION_SUFFIX"
+          if ($IsWindows) {
+            # MinGW emits PE sections that its matching objcopy can split without rewriting Go's internal-linker layout.
+            $linkerFlags += ' -linkmode=external'
+          }
+          go build -v -ldflags $linkerFlags -o "dist/dspm$ext" ./cmd/dspm
+
+      - name: Separate debug symbols
+        run: |
+          $ext = if ($env:RUNNER_OS -eq 'Windows') { '.exe' } else { '' }
+          $escapedVersion = $env:APPLICATION_SEMVER -replace '[.\-+]', '_'
+          $artifactBase = "$($env:APPLICATION_NAME)_$($escapedVersion)_$($env:ARTIFACT_PLATFORM)_$($env:ARTIFACT_ARCH)"
+          $archivePath = "symbol-archives/$($artifactBase)_debug_symbols.7z"
+          & ./scripts/ci/Split-Debug-Symbols.ps1 `
+            -ExecutablePath "dist/dspm$ext" `
+            -SymbolsDir debug-symbols `
+            -ArchivePath $archivePath
+          "SYMBOLS_PATH=$archivePath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SYMBOLS_ARTIFACT_NAME=$($artifactBase)_debug_symbols" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Validate stripped executable
+        run: |
+          $ext = if ($env:RUNNER_OS -eq 'Windows') { '.exe' } else { '' }
+          $versionOutput = & "./dist/dspm$ext" --json --version
+          if ($LASTEXITCODE -ne 0) {
+            throw 'The stripped executable could not report its version'
+          }
+          $version = $versionOutput | ConvertFrom-Json
+          if ($version.name -ne 'dspm' -or $version.version -ne $env:APPLICATION_SEMVER) {
+            throw 'The stripped executable version differs from the reserved version'
+          }
+
+      - name: Upload debug symbols
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.SYMBOLS_ARTIFACT_NAME }}
+          path: ${{ env.SYMBOLS_PATH }}
+          if-no-files-found: error
+          overwrite: true
+          compression-level: 0
 
       - name: Artifact upload
         if: inputs.build_type == 'dev'

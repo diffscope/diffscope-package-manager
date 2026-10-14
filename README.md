@@ -29,6 +29,22 @@ go version -m ./dspm.exe
 
 Published binaries require recorded platform, architecture, source revision, and file checksums. Release validation includes the tests and static analysis specified above.
 
+## CI debug symbols
+
+Dev and nightly builds separate debugging information before uploading executables. Each platform also uploads a separate `<application>_<version>_<platform>_<arch>_debug_symbols` artifact containing a `.7z` archive. Nightly releases include all three executables and all three symbol archives. Catalog executable variants remain `standalone`, and symbol archive variants use `debug_symbols`.
+
+The shared build retains debug information until extraction and disables Go's DWARF compression with `-compressdwarf=false`. It does not use linker flags `-s` or `-w` before extraction. The symbol files contain information from the same link as the distributed executable.
+
+| Platform | Symbol archive contents | Executable processing |
+| --- | --- | --- |
+| Linux | `dspm.debug` ELF companion | `objcopy --only-keep-debug`, followed by `--strip-debug` and `.gnu_debuglink` creation. |
+| Windows | `dspm.exe.debug` PE/DWARF companion and `unstripped/dspm.exe` | External linking with MinGW, followed by its matching `objcopy` for extraction, `--strip-debug`, and `.gnu_debuglink` creation. |
+| macOS | `dspm.dSYM` bundle with a matching UUID | `dsymutil --update --no-odr`, followed by `strip -S` and ad hoc code signing. |
+
+Windows Go binaries contain DWARF rather than PDB files. The Windows symbol archive also preserves the original executable because [Delve's PE loader](https://github.com/go-delve/delve/blob/master/pkg/proc/bininfo.go) reads DWARF directly from the executable. This executable can be used for Delve sessions or matching dump analysis. The `.debug` companion is available for debuggers that support separate PE/DWARF files. Windows stripping retains runtime tables, relocations, and unwind data.
+
+Go embeds linked DWARF in macOS executables and removes the temporary object-file debug map. The symbol extraction uses [dsymutil update mode](https://llvm.org/docs/CommandGuide/dsymutil.html#cmdoption-dsymutil-u) to read the embedded information. CI rejects empty symbol files, residual DWARF, and mismatched macOS UUIDs before publishing artifacts. It also checks that each stripped executable reports the reserved version.
+
 ## Package operations
 
 ```sh
