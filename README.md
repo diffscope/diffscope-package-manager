@@ -39,11 +39,11 @@ The shared build retains debug information until extraction and disables Go's DW
 | --- | --- | --- |
 | Linux | `dspm.debug` ELF companion | `objcopy --only-keep-debug`, followed by `--strip-debug` and `.gnu_debuglink` creation. |
 | Windows | `dspm.exe.debug` PE/DWARF companion and `unstripped/dspm.exe` | External linking with MinGW, followed by its matching `objcopy` for extraction, `--strip-debug`, and `.gnu_debuglink` creation. |
-| macOS | `dspm.dSYM` bundle with a matching UUID | `dsymutil --update --no-odr`, followed by `strip -S` and ad hoc code signing. |
+| macOS | `dspm.dSYM` bundle with a matching UUID | `dsymutil --update --no-odr`, followed by `llvm-objcopy --strip-debug` and ad hoc code signing. |
 
 Windows Go binaries contain DWARF rather than PDB files. The Windows symbol archive also preserves the original executable because [Delve's PE loader](https://github.com/go-delve/delve/blob/master/pkg/proc/bininfo.go) reads DWARF directly from the executable. This executable can be used for Delve sessions or matching dump analysis. The `.debug` companion is available for debuggers that support separate PE/DWARF files. Windows stripping retains runtime tables, relocations, and unwind data.
 
-Go embeds linked DWARF in macOS executables and removes the temporary object-file debug map. The symbol extraction uses [dsymutil update mode](https://llvm.org/docs/CommandGuide/dsymutil.html#cmdoption-dsymutil-u) to read the embedded information. CI rejects empty symbol files, residual DWARF, and mismatched macOS UUIDs before publishing artifacts. It also checks that each stripped executable reports the reserved version.
+Go embeds linked DWARF in macOS executables and removes the temporary object-file debug map. The symbol extraction uses [dsymutil update mode](https://llvm.org/docs/CommandGuide/dsymutil.html#cmdoption-dsymutil-u) to read the embedded information. macOS requires `llvm-objcopy` on `PATH` or in an installed Homebrew `llvm` or `llvm@<version>` package. The stripping step removes embedded `__DWARF` sections with `llvm-objcopy --strip-debug`, checks the executable's section headers with `otool -l`, and signs the executable again. CI rejects empty symbol files, residual DWARF, and mismatched macOS UUIDs before publishing artifacts, including UUID validation after stripping and signing. It also checks that each stripped executable reports the reserved version.
 
 ## Package operations
 

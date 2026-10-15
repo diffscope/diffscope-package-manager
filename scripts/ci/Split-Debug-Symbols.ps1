@@ -24,6 +24,27 @@ New-Item -ItemType Directory -Path $symbols | Out-Null
 New-Item -ItemType Directory -Force -Path ([System.IO.Path]::GetDirectoryName($archive)) | Out-Null
 
 if ($IsMacOS) {
+    $llvmObjcopyCommand = Get-Command llvm-objcopy -ErrorAction SilentlyContinue
+    $llvmObjcopy = if ($llvmObjcopyCommand) { $llvmObjcopyCommand.Source } else { $null }
+    if (-not $llvmObjcopy) {
+        # Hosted macOS images provide a versioned, keg-only Homebrew LLVM package.
+        $brew = Get-Command brew -ErrorAction SilentlyContinue
+        if ($brew) {
+            $llvmFormulas = @(& $brew.Source list --formula | Where-Object { $_ -match '^llvm(?:@\d+)?$' })
+            foreach ($formula in $llvmFormulas) {
+                $prefix = (& $brew.Source --prefix $formula | Out-String).Trim()
+                $candidate = Join-Path $prefix 'bin/llvm-objcopy'
+                if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                    $llvmObjcopy = $candidate
+                    break
+                }
+            }
+        }
+    }
+    if (-not $llvmObjcopy) {
+        throw 'llvm-objcopy is required to remove embedded Mach-O DWARF sections'
+    }
+
     $dsym = Join-Path $symbols "$executableName.dSYM"
     # Go embeds linked DWARF and removes its temporary object-file debug map.
     # Update mode reads the embedded DWARF instead of requiring those object files.
@@ -45,13 +66,21 @@ if ($IsMacOS) {
         $binaryMatch.Groups[1].Value -ne $symbolMatch.Groups[1].Value) {
         throw 'The dSYM UUID differs from the executable UUID'
     }
-    & xcrun strip -S $executable | Out-Host
-    $strippedDebugInfo = & xcrun dwarfdump --debug-info $executable
-    if ($strippedDebugInfo -match 'DW_TAG_compile_unit') {
-        throw 'The executable still contains DWARF compilation units'
+    # Apple strip -S removes STABS entries from executables, but retains embedded
+    # DWARF. LLVM objcopy removes the sections in __DWARF without a second link.
+    & $llvmObjcopy --strip-debug $executable | Out-Host
+    $loadCommands = & xcrun otool -l $executable
+    if ($loadCommands -match '^\s*sectname\s+__(?:zdebug|debug)_') {
+        throw 'The executable still contains DWARF sections'
     }
     & codesign --force --sign - $executable | Out-Host
     & codesign --verify $executable | Out-Host
+    $strippedUUID = (& xcrun dwarfdump --uuid $executable | Out-String)
+    $strippedMatch = [regex]::Match($strippedUUID, $uuidPattern)
+    if (-not $strippedMatch.Success -or
+        $strippedMatch.Groups[1].Value -ne $symbolMatch.Groups[1].Value) {
+        throw 'The stripped executable UUID differs from the dSYM UUID'
+    }
 } else {
     if ($IsWindows) {
         # Go emits DWARF rather than PDB. Use binutils from the selected MinGW toolchain.
