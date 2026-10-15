@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/diffscope/diffscope-package-manager/internal/testutil"
 )
 
@@ -73,8 +74,15 @@ func TestWindowsConsoleRemoteDownloads(t *testing.T) {
 	if len(percentages) < 3 || !strings.Contains(downloadOutput, "█") || !strings.Contains(downloadOutput, "Downloads:") || !strings.Contains(downloadOutput, "console-known=1.0.0.0") || !strings.Contains(downloadOutput, "console-unknown=1.0.0.0") || !strings.Contains(downloadOutput, "Total size unknown.") {
 		t.Fatal("The download stage lacks determinate or indeterminate progress.", downloadOutput)
 	}
-	if strings.Count(downloadOutput, "100%") != 2 || !strings.Contains(downloadOutput, "console-known=1.0.0.0  completed") || !strings.Contains(downloadOutput, "console-unknown=1.0.0.0  completed") {
-		t.Fatal("Completed downloads lack retained final records and progress bars.", downloadOutput)
+	// Live frames can reach 100% during verification or repeat on a timer.
+	// Check each retained completion record together with its full progress bar.
+	downloadText := ansi.Strip(downloadOutput)
+	for _, target := range []string{"console-known=1.0.0.0", "console-unknown=1.0.0.0"} {
+		completed := target + "  completed"
+		completedBar := regexp.MustCompile(regexp.QuoteMeta(completed) + `[^\r\n]*\r?\n[█ ]+100%`)
+		if strings.Count(downloadText, completed) != 1 || !completedBar.MatchString(downloadText) {
+			t.Fatal("A completed download lacks a unique retained final record and full progress bar.", target, downloadOutput)
+		}
 	}
 	if !strings.Contains(output[installAt:], "100%") || !strings.Contains(output, "\x1b[?25h") {
 		t.Fatal("The installation progress or cursor restoration is absent.", output)
