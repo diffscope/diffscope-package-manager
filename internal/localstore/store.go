@@ -35,11 +35,6 @@ func Open(root string, write bool) (*Session, error) {
 		return nil, err
 	}
 	s := &Session{Root: absolute, writable: write}
-	if _, err := os.Stat(filepath.Join(absolute, "packages.db")); err == nil {
-		return nil, fmt.Errorf("A package database outside the .dspm directory is unsupported.")
-	} else if !os.IsNotExist(err) {
-		return nil, err
-	}
 	state := filepath.Join(absolute, ".dspm")
 	if _, err := os.Stat(state); os.IsNotExist(err) {
 		if !write {

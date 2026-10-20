@@ -16,7 +16,7 @@ Only packages registered in the database are managed. Unregistered package direc
 
 ## Schema Identity and Initialization
 
-An existing database must have `PRAGMA user_version = 242`. Automatic migration is not implemented. An unrecognized existing database, including schema version `0`, is rejected. A database at `<packages-root>/packages.db` is also rejected.
+An existing database must have `PRAGMA user_version = 242`. Automatic migration is not implemented. An unrecognized existing database, including schema version `0`, is rejected.
 
 ```sql
 PRAGMA user_version;
