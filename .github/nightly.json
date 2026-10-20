@@ -1,0 +1,15 @@
+{
+    "repository": "diffscope/diffscope-package-manager",
+    "attemptKind": "dspm-nightly-build",
+    "versionFile": "internal/buildinfo/VERSION",
+    "versionFormat": "text",
+    "applicationName": "dspm",
+    "artifacts": [
+        { "suffix": "_Windows_amd64_standalone.exe", "platform": "windows", "arch": "amd64", "format": "exe", "variant": "standalone" },
+        { "suffix": "_Windows_amd64_debug_symbols.7z", "platform": "windows", "arch": "amd64", "format": "7z", "variant": "debug_symbols" },
+        { "suffix": "_Linux_amd64_standalone", "platform": "linux", "arch": "amd64", "format": "binary", "variant": "standalone" },
+        { "suffix": "_Linux_amd64_debug_symbols.7z", "platform": "linux", "arch": "amd64", "format": "7z", "variant": "debug_symbols" },
+        { "suffix": "_macOS_arm64_standalone", "platform": "macos", "arch": "arm64", "format": "binary", "variant": "standalone" },
+        { "suffix": "_macOS_arm64_debug_symbols.7z", "platform": "macos", "arch": "arm64", "format": "7z", "variant": "debug_symbols" }
+    ]
+}
